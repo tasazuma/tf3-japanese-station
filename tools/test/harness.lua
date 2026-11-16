@@ -102,7 +102,9 @@ local con = loadData("/stations/jpst/jpst_station.con")
 local script = loadData("/stations/jpst/jpst_station.script")
 local moduleScript = loadData("/stations/jpst/jpst_modules.script")
 
+TEST_MODULES = {} -- name -> function returning a desc (test-only modules)
 local function moduleDesc(name)
+	if TEST_MODULES[name] then return TEST_MODULES[name]() end
 	local modId, rel = name:match("^([%w_]+)::(/.*)$")
 	assert(rel and MODS[modId], "module name not qualified: " .. tostring(name))
 	return loadData(rel, MODS[modId])
@@ -630,3 +632,304 @@ for lvl = 1, 2 do for pl = 1, 2 do for nt = 1, 8 do for b = 1, 3 do for ps = 1, 
 	if n > 0 then kBad = kBad + 1; print("FAIL blocked building slots", lvl, pl, nt, b, ps, n) end
 end end end end end
 print("building slot overlap check", kN, "bad", kBad)
+-- 11) forecourt (駅前): plaza modules behind the station buildings
+print("== forecourt ==")
+local function fcid(side, d, w, h, seg) return layout.encode(K.FORECOURT, G, layout.forecourtRow(side, d, w, h), seg) end
+local PAVED = function(w, h) return layout.moduleName(("jpst_forecourt_paved_%dx%d"):format(w, h)) end
+local GREEN = function(w, h) return layout.moduleName(("jpst_forecourt_green_%dx%d"):format(w, h)) end
+local function fslots(r)
+	local t, n = {}, 0
+	for _, s in ipairs(r.slots) do if s.type:match("^jpst_forecourt") then t[s.type] = (t[s.type] or 0) + 1; n = n + 1 end end
+	local keys = {} for k in pairs(t) do keys[#keys + 1] = k end table.sort(keys)
+	local out = {} for _, k in ipairs(keys) do out[#out + 1] = k .. "=" .. t[k] end
+	return n, table.concat(out, " ")
+end
+-- union-find over lane nodes; returns a function mapping a world point to its component (nil if no node)
+local function components(r)
+	local pts, parent = {}, {}
+	local function find(i) while parent[i] ~= i do parent[i] = parent[parent[i]]; i = parent[i] end return i end
+	for _, ll in ipairs(r.cargoStation.laneLists) do
+		local t, first = ll.transf, #pts + 1
+		for _, n in ipairs(ll.nodes) do
+			local p = n[1]
+			pts[#pts + 1] = { t[1] * p[1] + t[5] * p[2] + t[9] * p[3] + t[13], t[2] * p[1] + t[6] * p[2] + t[10] * p[3] + t[14],
+				t[3] * p[1] + t[7] * p[2] + t[11] * p[3] + t[15] }
+			parent[#pts] = #pts
+		end
+		for e = 0, (#ll.nodes // 2) - 1 do parent[find(first + 2 * e)] = find(first + 2 * e + 1) end
+	end
+	local function near(a, b) return math.abs(a[1] - b[1]) < 0.01 and math.abs(a[2] - b[2]) < 0.01 and math.abs(a[3] - b[3]) < 0.01 end
+	for i = 1, #pts do for j = i + 1, #pts do if near(pts[i], pts[j]) then
+		local a, b = find(i), find(j); if a ~= b then parent[a] = b end
+	end end end
+	return function(x, y, z)
+		for i, p in ipairs(pts) do if near(p, { x, y, z }) then return find(i) end end
+	end, function(li) -- component of lane li (1-based), first node
+		local k = 0
+		for i = 1, li - 1 do k = k + #r.cargoStation.laneLists[i].nodes end
+		return find(k + 1)
+	end
+end
+-- every cell centre of every placed plaza must be on the same lane component as the platforms
+local function fcCheck(label, m, expectIgnored, expectUnreachable)
+	local r = build({ modulesByName = m })
+	local L = r.jpst.layout
+	local compAt, compOfLane = components(r)
+	local term = compOfLane(r.cargoStation.station.terminals[1].personEdges[1][1] + 1)
+	local cells, bad = 0, 0
+	for id, f in pairs(L.forecourts) do
+		local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+		for i = 0, f.w - 1 do for j = 0, f.h - 1 do
+			local lx, ly = -f.w * 20 + 20 + 40 * i, -f.h * 20 + 20 + 40 * j
+			local x, y = tf[1] * lx + tf[5] * ly + tf[13], tf[2] * lx + tf[6] * ly + tf[14]
+			cells = cells + 1
+			if compAt(x, y, f.level == E and layout.DECK_Z or 0) ~= term then bad = bad + 1 end
+		end end
+	end
+	local ig = nIgnored(r)
+	local fail = (ig ~= (expectIgnored or 0)) or bad ~= (expectUnreachable or 0)
+	local nan = 0
+	for _, mdl in ipairs(r.cargoStation.models) do for i = 1, 16 do if mdl.transf[i] ~= mdl.transf[i] then nan = nan + 1 end end end
+	print(("%s%s ignored=%d cells=%d unreachable=%d nan=%d slots=%d"):format(fail and "FAIL " or "", label, ig, cells, bad, nan,
+		(fslots(r))))
+	return r
+end
+-- a) ground, brick_3 on -X; 2x2 + 1x1 in row 0 and a 1x1 two rows out (reached through the 2x2)
+for lvl = 1, 2 do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl })
+	local L0 = build({ modulesByName = m }).jpst.layout
+	local s0 = math.huge for s in pairs(L0.buildingAt[MINUS]) do s0 = math.min(s0, s) end
+	local b0 = L0.buildings[L0.buildingAt[MINUS][s0]]
+	print(("lvl %d brick depth=%s front=%.1f back=%.1f base=%.1f"):format(lvl, b0.depth, b0.front, b0.back, L0.forecourtBase[MINUS]))
+	if b0.depth ~= 40 then print("FAIL brick jpst_depth") end
+	print("   forecourt slots (none placed):", select(2, fslots(build({ modulesByName = m }))), "count", (fslots(build({ modulesByName = m }))))
+	m[fcid(MINUS, 0, 2, 2, s0)] = PAVED(2, 2)
+	m[fcid(MINUS, 0, 1, 1, s0 + 2)] = GREEN(1, 1)
+	m[fcid(MINUS, 2, 1, 1, s0)] = PAVED(1, 1)
+	m[fcid(MINUS, 1, 1, 1, s0 + 2)] = GREEN(1, 1)
+	m[fcid(MINUS, 2, 2, 1, s0 + 1)] = PAVED(2, 1)
+	fcCheck("lvl " .. lvl .. " brick3 + 5 plazas", m, 0)
+end
+-- b) mixed depths in row 0: small (17) + wood (20) + small; the gap to the shallow ones is bridged
+local mb = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+mb[bid(MINUS, 1, -1)] = layout.moduleName("jpst_building_small")
+mb[bid(MINUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+mb[fcid(MINUS, 0, 1, 1, -1)] = PAVED(1, 1)
+mb[fcid(MINUS, 0, 2, 1, 0)] = GREEN(2, 1)
+local rb = fcCheck("mixed depths", mb, 0)
+local Lb = rb.jpst.layout
+print(("   base=%.1f gaps=%.1f,%.1f,%.1f"):format(Lb.forecourtBase[MINUS], layout.forecourtGap(Lb, MINUS, -1),
+	layout.forecourtGap(Lb, MINUS, 0), layout.forecourtGap(Lb, MINUS, 1)))
+-- plazas on both sides with brick on both sides, elevated
+local mc = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 4, jpst_tracks = 4, jpst_level = 2 })
+mc[bid(PLUS, 4, -2)] = brick(4)
+mc[fcid(PLUS, 0, 2, 2, -2)] = PAVED(2, 2)
+mc[fcid(PLUS, 0, 2, 2, 0)] = PAVED(2, 2)
+mc[fcid(MINUS, 0, 2, 1, -1)] = GREEN(2, 1)
+fcCheck("elevated both sides", mc, 0)
+-- c) ignored: no building in a covered column / overlap / beyond the grid
+local md = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 }) -- small at -X seg 0 only
+md[fcid(MINUS, 0, 2, 1, 0)] = PAVED(2, 1)
+fcCheck("no building in column", md, 1)
+local me = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+me[fcid(MINUS, 0, 1, 1, 0)] = PAVED(1, 1)
+me[fcid(PLUS, 0, 1, 1, 0)] = PAVED(1, 1)
+fcCheck("plaza on side without building", me, 1)
+local mf2 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2 })
+mf2[fcid(MINUS, 0, 2, 2, -1)] = PAVED(2, 2)
+mf2[fcid(MINUS, 1, 1, 1, 0)] = PAVED(1, 1)
+-- the 1x1 has the lower id and wins; with nothing between it and the building it is a separate
+-- (still linkable) lane island, which is accepted
+fcCheck("overlapping plazas", mf2, 1, 1)
+-- the building behind a plaza is removed: the plaza is ignored but keeps its slot
+local mg2 = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+mg2[fcid(MINUS, 0, 1, 1, 0)] = PAVED(1, 1)
+mg2[layout.encode(K.BUILDING, G, MINUS, 0)] = nil
+fcCheck("building removed", mg2, 1)
+-- d) slot overlap check: free building/forecourt slots vs placed modules, with plazas placed
+local function blockedSlots(m, r, pattern)
+	local occ = {}
+	for _, s in ipairs(r.slots) do if m[s.id] then occ[#occ + 1] = s end end
+	local bad = 0
+	for _, s in ipairs(r.slots) do
+		if s.type:match(pattern) and not m[s.id] then
+			local ax0, ax1, ay0, ay1, az = slotBox(s)
+			for _, o in ipairs(occ) do
+				local bx0, bx1, by0, by1, bz = slotBox(o)
+				if math.abs(az - bz) < 1 and math.min(ax1, bx1) - math.max(ax0, bx0) > 1e-3 and math.min(ay1, by1) - math.max(ay0, by0) > 1e-3 then
+					bad = bad + 1
+					break
+				end
+			end
+		end
+	end
+	return bad
+end
+local fN, fBad, fOffered = 0, 0, 0
+for lvl = 1, 2 do for nt = 1, 6 do for b = 1, 3 do for withPlaza = 0, 1 do
+	local m = script.createTemplateFn({}, { jpst_building = b, jpst_length = 3, jpst_tracks = nt, jpst_level = lvl })
+	m[bid(PLUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+	if withPlaza == 1 then
+		m[fcid(PLUS, 0, 1, 1, 1)] = GREEN(1, 1)
+		local L = build({ modulesByName = m }).jpst.layout
+		if L.buildingAt[MINUS][0] then m[fcid(MINUS, 1, 1, 1, 0)] = PAVED(1, 1) end
+	end
+	local r = build({ modulesByName = m })
+	local n = blockedSlots(m, r, "^jpst_building") + blockedSlots(m, r, "^jpst_forecourt")
+	fOffered = fOffered + (fslots(r))
+	fN = fN + 1
+	if n > 0 or nIgnored(r) > 0 then fBad = fBad + 1; print("FAIL forecourt slot overlap", lvl, nt, b, withPlaza, n, nIgnored(r)) end
+end end end end
+print("forecourt slot overlap check", fN, "bad", fBad, "slots offered", fOffered)
+-- e) lane patterns (cross / along / through / none): same skin, different lanes param
+for _, pat in ipairs({ "cross", "along", "through", "none" }) do
+	local name = "jpst_station::/test/forecourt_" .. pat
+	TEST_MODULES[name] = function()
+		local d = moduleDesc(PAVED(2, 2))
+		d.updateScript.params = { lanes = pat }
+		return d
+	end
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2 })
+	m[fcid(MINUS, 0, 2, 2, -1)] = name
+	local r = build({ modulesByName = m })
+	local L = r.jpst.layout
+	local n = 0
+	for _, ll in ipairs(r.cargoStation.laneLists) do if ll.linkable and #ll.nodes > 0 then n = n + 1 end end
+	-- cross/through reach the station: 4 cells; along/none: none reachable from the platforms
+	local expect = (pat == "cross" or pat == "through") and 0 or 4
+	fcCheck("lanes=" .. pat, m, 0, expect)
+end
+-- 12) pedestrian deck (ペデストリアンデッキ): forecourt level 1 at DECK_Z
+print("== deck ==")
+local DZ = layout.DECK_Z
+local function dkid(side, d, w, h, seg) return layout.encode(K.FORECOURT, E, layout.forecourtRow(side, d, w, h), seg) end
+local DECK = function(w, h) return layout.moduleName(("jpst_deck_concrete_%dx%d"):format(w, h)) end
+local function nodesAt(r, x, y, z)
+	local n = 0
+	for _, ll in ipairs(r.cargoStation.laneLists) do
+		local t = ll.transf
+		for _, nd in ipairs(ll.nodes) do
+			local p = nd[1]
+			local wx = t[1] * p[1] + t[5] * p[2] + t[9] * p[3] + t[13]
+			local wy = t[2] * p[1] + t[6] * p[2] + t[10] * p[3] + t[14]
+			local wz = t[3] * p[1] + t[7] * p[2] + t[11] * p[3] + t[15]
+			if math.abs(wx - x) < 0.01 and math.abs(wy - y) < 0.01 and math.abs(wz - z) < 0.01 then n = n + 1 end
+		end
+	end
+	return n
+end
+-- world point of a local forecourt-frame point
+local function fcWorld(L, f, lx, ly)
+	local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+	return tf[1] * lx + tf[5] * ly + tf[13], tf[2] * lx + tf[6] * ly + tf[14]
+end
+-- a) ground + 2F concourse + small building: deck 1x1 over a paved 1x1; the deck joins the concourse at
+--    the building front at 2F, and its stair foot lands on the plaza centre node
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2, jpst_passage = 2 })
+	m[dkid(MINUS, 0, 1, 1, 0)] = DECK(1, 1)
+	m[fcid(MINUS, 0, 1, 1, 0)] = PAVED(1, 1)
+	local r = fcCheck("deck + concourse + plaza", m, 0)
+	local L = r.jpst.layout
+	local b = L.buildings[L.buildingAt[MINUS][0]]
+	local compAt, compOfLane = components(r)
+	local term = compOfLane(r.cargoStation.station.terminals[1].personEdges[1][1] + 1)
+	local nFront = nodesAt(r, b.front, 0, DZ)
+	print(("   deck/concourse joint nodes=%d (deck %s)"):format(nFront, tostring(DZ == layout.CONCOURSE_Z)))
+	if nFront < 3 then print("FAIL deck does not meet the concourse at the building front") end
+	local f = L.forecourts[dkid(MINUS, 0, 1, 1, 0)]
+	local cx, cy = fcWorld(L, f, 0, 0)
+	if compAt(cx, cy, 0) ~= term or nodesAt(r, cx, cy, 0) < 4 then print("FAIL deck stair foot not on the plaza centre") end
+	-- without the plaza the stair foot is still a linkable lane end on the ground
+	m[fcid(MINUS, 0, 1, 1, 0)] = nil
+	local r2 = fcCheck("deck without plaza", m, 0)
+	local linkGround = 0
+	for _, ll in ipairs(r2.cargoStation.laneLists) do
+		if ll.linkable and ll.nodes[1] and math.abs(ll.nodes[1][1][3]) < 0.01 then linkGround = linkGround + 1 end
+	end
+	print("   linkable ground lanes", linkGround)
+end
+-- b) brick over 3 segments + concourse: 2x2 deck and 1x1 decks (one two rows out, reached over the 2x2)
+for lvl = 1, 2 do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 4, jpst_level = lvl, jpst_passage = 2 })
+	local L0 = build({ modulesByName = m }).jpst.layout
+	local s0 = math.huge for s in pairs(L0.buildingAt[MINUS]) do s0 = math.min(s0, s) end
+	m[dkid(MINUS, 0, 2, 2, s0)] = DECK(2, 2)
+	m[dkid(MINUS, 0, 1, 1, s0 + 2)] = DECK(1, 1)
+	m[dkid(MINUS, 2, 1, 1, s0)] = DECK(1, 1)
+	m[fcid(MINUS, 0, 2, 2, s0)] = PAVED(2, 2)
+	m[fcid(MINUS, 2, 2, 1, s0 + 1)] = GREEN(2, 1)
+	fcCheck("lvl " .. lvl .. " brick3 + 3 decks + 2 plazas", m, 0)
+end
+-- c) mixed depths on -X (small 17 / wood 20 / small): the plaza connector of every column must end on the
+--    street lane of the building in that same column (column order is mirrored on the -X side)
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2, jpst_passage = 2 })
+	m[bid(MINUS, 1, -1)] = layout.moduleName("jpst_building_small")
+	m[bid(MINUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+	m[fcid(MINUS, 0, 2, 1, 0)] = GREEN(2, 1)
+	m[dkid(MINUS, 0, 2, 1, -1)] = DECK(2, 1)
+	local r = fcCheck("mixed depths + deck", m, 0)
+	local L = r.jpst.layout
+	for s = 0, 1 do
+		local b = L.buildings[L.buildingAt[MINUS][s]]
+		local n = nodesAt(r, b.front - (b.depth - 3), layout.segY(s), 0)
+		if n < 3 then print("FAIL plaza connector misses the street lane of column", s, n) end
+	end
+end
+-- d) both sides, elevated (no concourse: the deck goes down into the building hall)
+do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 4, jpst_tracks = 4, jpst_level = 2 })
+	m[bid(PLUS, 4, -2)] = brick(4)
+	m[dkid(PLUS, 0, 1, 1, -2)] = DECK(1, 1)
+	m[dkid(PLUS, 0, 2, 1, 0)] = DECK(2, 1)
+	m[dkid(MINUS, 0, 2, 2, -1)] = DECK(2, 2)
+	fcCheck("elevated decks both sides", m, 0)
+end
+-- e) ignored: no building on that side / two decks overlapping; a deck over a plaza is fine
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+	m[dkid(PLUS, 0, 1, 1, 0)] = DECK(1, 1)
+	fcCheck("deck on side without building", m, 1)
+	local m2 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2 })
+	m2[dkid(MINUS, 0, 2, 2, -1)] = DECK(2, 2)
+	m2[dkid(MINUS, 1, 1, 1, 0)] = DECK(1, 1)
+	fcCheck("overlapping decks", m2, 1, 1)
+end
+-- f) slot overlap: free building/forecourt/deck slots vs placed modules
+do
+	local n, bad, offered = 0, 0, 0
+	for lvl = 1, 2 do for nt = 1, 6 do for b = 1, 3 do for ps = 1, 2 do
+		local m = script.createTemplateFn({}, { jpst_building = b, jpst_length = 3, jpst_tracks = nt, jpst_level = lvl, jpst_passage = ps })
+		m[bid(PLUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+		m[dkid(PLUS, 0, 1, 1, 1)] = DECK(1, 1)
+		m[fcid(PLUS, 0, 1, 1, 1)] = GREEN(1, 1)
+		local L = build({ modulesByName = m }).jpst.layout
+		if L.buildingAt[MINUS][0] then m[dkid(MINUS, 1, 1, 1, 0)] = DECK(1, 1) end
+		local r = build({ modulesByName = m })
+		local k = blockedSlots(m, r, "^jpst_building") + blockedSlots(m, r, "^jpst_forecourt") + blockedSlots(m, r, "^jpst_deck")
+			+ blockedSlots(m, r, "^jpst_concourse")
+		for _, sl in ipairs(r.slots) do if sl.type:match("^jpst_deck") then offered = offered + 1 end end
+		n = n + 1
+		if k > 0 or nIgnored(r) > 0 then bad = bad + 1; print("FAIL deck slot overlap", lvl, nt, b, ps, k, nIgnored(r)) end
+	end end end end
+	print("deck slot overlap check", n, "bad", bad, "deck slots offered", offered)
+end
+-- g) lane patterns and stairs params
+for _, pat in ipairs({ "cross", "along", "through" }) do for _, st in ipairs({ "outer", "all", "none" }) do
+	local name = ("jpst_station::/test/deck_%s_%s"):format(pat, st)
+	TEST_MODULES[name] = function()
+		local d = moduleDesc(DECK(2, 2))
+		d.updateScript.params = { lanes = pat, stairs = st }
+		return d
+	end
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_passage = 2 })
+	m[dkid(MINUS, 0, 2, 2, -1)] = name
+	-- along: the outer cell row only reaches the station through its stairs, which need a plaza below
+	local expect = (pat == "along") and 2 or 0
+	if pat == "along" and st ~= "none" then
+		m[fcid(MINUS, 0, 2, 2, -1)] = PAVED(2, 2)
+		expect = 0
+	end
+	fcCheck(("deck lanes=%s stairs=%s"):format(pat, st), m, 0, expect)
+end end

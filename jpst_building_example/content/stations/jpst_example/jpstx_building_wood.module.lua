@@ -41,6 +41,7 @@ function data()
 		-- jpst_building = 1 segment (40 m); jpst_building_2 .. jpst_building_8 = 2 .. 8 segments
 		type = "jpst_building",
 		metadata = {
+			jpst_depth = 20, -- must match config.depth: the forecourt starts behind the deepest building
 			moreCapacity = { passenger = 30 },
 			emissionConfig = { noise = 1, pollution = 2 },
 			catchmentPassenger = { radius = 150 },

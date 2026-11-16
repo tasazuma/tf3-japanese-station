@@ -16,18 +16,28 @@ layout.CONCOURSE_Z = 9 -- 2F concourse floor over ground tracks
 layout.CONCOURSE_HALF_WIDTH = 5
 layout.BRIDGE_TYPE = "::/infrastructure/bridge/concrete.bridge"
 
-layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4 }
+layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5 }
 layout.LEVEL = { GROUND = 0, ELEVATED = 1 } -- 2..9 reserved (underground etc.)
 layout.LEVEL_Z = { [0] = 0, [1] = layout.ELEVATED_Z }
 layout.LEVEL_SUFFIX = { [0] = "", [1] = "_elevated" }
 layout.SIDE = { MINUS_X = 0, PLUS_X = 1 }
 layout.MAX_BUILDING_SEGS = 8 -- station buildings span 1..8 segments (40..320 m)
+layout.DEFAULT_BUILDING_DEPTH = 17 -- used when a building module has no metadata.jpst_depth
+-- Forecourt (駅前): a grid of 40 x 40 m cells behind the station buildings, FORECOURT_ROWS cells deep.
+-- A forecourt module covers w (along the tracks) x h (away from the station) cells, 1..4 each.
+layout.FORECOURT_CELL = 40
+layout.FORECOURT_ROWS = 4
+layout.MAX_FORECOURT_W = 4
+-- Pedestrian deck (ペデストリアンデッキ): forecourt level 1, same grid, floor at the 2F concourse height so
+-- both join flat. Real decks are ~6-8 m above the road; 9 m keeps one "2F" height for every pattern.
+layout.DECK_Z = layout.CONCOURSE_Z
 
 layout.SLOT_TYPE = {
 	[1] = "jpst_track",
 	[2] = "jpst_platform",
 	[3] = "jpst_building",
 	[4] = "jpst_concourse",
+	[5] = "jpst_forecourt",
 }
 
 -- Track/platform slot types differ per level so the module picker only shows matching slots.
@@ -51,12 +61,37 @@ function layout.buildingSlotType(size)
 	return layout.SLOT_TYPE[layout.KIND.BUILDING] .. "_" .. tostring(size)
 end
 
+-- Forecourt modules: row = side + 2 * d + 8 * ((w - 1) + 4 * (h - 1)), where d is the first cell row
+-- counted from the station (0 = next to the buildings). Slot types: jpst_forecourt (1 x 1 cell) and
+-- jpst_forecourt_<w>x<h> otherwise; on level 1 (deck) jpst_deck / jpst_deck_<w>x<h>.
+-- `seg` is the first covered segment column (extends towards +Y).
+function layout.forecourtRow(side, d, w, h)
+	return side + 2 * d + 8 * ((w - 1) + 4 * (h - 1))
+end
+
+function layout.forecourtDecodeRow(row)
+	local side = row % 2
+	local r = math.floor(row / 2)
+	local d = r % layout.FORECOURT_ROWS
+	local code = math.floor(r / layout.FORECOURT_ROWS)
+	return side, d, code % 4 + 1, math.floor(code / 4) + 1
+end
+
+function layout.forecourtSlotType(w, h, level)
+	local base = (level == layout.LEVEL.ELEVATED) and "jpst_deck" or layout.SLOT_TYPE[layout.KIND.FORECOURT]
+	if w == 1 and h == 1 then return base end
+	return base .. "_" .. tostring(w) .. "x" .. tostring(h)
+end
+
 -- Slot type for any slot id.
 function layout.slotTypeOf(id)
 	local kind, level, row = layout.decode(id)
 	if kind == layout.KIND.BUILDING then
 		local _, size = layout.buildingSideSize(row)
 		return layout.buildingSlotType(size)
+	elseif kind == layout.KIND.FORECOURT then
+		local _, _, w, h = layout.forecourtDecodeRow(row)
+		return layout.forecourtSlotType(w, h, level)
 	end
 	return layout.slotType(kind, level)
 end
@@ -107,9 +142,13 @@ function layout.compute(modules)
 		rowLevel = {},   -- [row] = level
 		widths = {},
 		centres = {},
-		buildings = {},  -- [slotId] = { module, side, size, seg, front }
+		buildings = {},  -- [slotId] = { module, side, size, seg, depth, front, back }
 		buildingAt = { [0] = {}, [1] = {} }, -- buildingAt[side][seg] = slotId of the building covering it
 		concourses = {}, -- [seg] = slotId (one per segment)
+		forecourts = {}, -- [slotId] = { module, level, side, d, w, h, seg } (level 0 = 1F plaza, 1 = deck)
+		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
+		deckAt = { [0] = {}, [1] = {} },      -- deckAt[side][d][seg] = slotId (deck, level 1)
+		forecourtBase = {}, -- [side] = X where forecourt row 0 starts (outermost building back), nil = no building
 		ignored = {},    -- [slotId] = true: module kept in its slot but not built (level conflict, orphan building)
 		segs = {},       -- [seg] = { minRow, maxRow }
 		minRow = 0, maxRow = 0, minSeg = 0, maxSeg = 0,
@@ -149,6 +188,8 @@ function layout.compute(modules)
 			end
 		elseif kind == layout.KIND.BUILDING then
 			L.buildings[id] = { module = m }
+		elseif kind == layout.KIND.FORECOURT and (level == layout.LEVEL.GROUND or level == layout.LEVEL.ELEVATED) then
+			L.forecourts[id] = { module = m, level = level }
 		elseif kind == layout.KIND.CONCOURSE and L.concourses[seg] == nil then
 			L.concourses[seg] = id
 		else
@@ -171,6 +212,7 @@ function layout.compute(modules)
 		if ok then
 			local b = L.buildings[id]
 			b.side, b.size, b.seg = side, size, seg
+			b.depth = (b.module and b.module.metadata and b.module.metadata.jpst_depth) or layout.DEFAULT_BUILDING_DEPTH
 			for s = seg, seg + size - 1 do L.buildingAt[side][s] = id end
 		else
 			L.buildings[id] = nil
@@ -208,8 +250,62 @@ function layout.compute(modules)
 	end
 	for _, b in pairs(L.buildings) do
 		b.front = layout.buildingFront(L, b.side, b.seg, b.size)
+		local dir = (b.side == layout.SIDE.MINUS_X) and -1 or 1
+		b.back = b.front + dir * b.depth
+		local base = L.forecourtBase[b.side]
+		if base == nil or (dir < 0 and b.back < base) or (dir > 0 and b.back > base) then
+			L.forecourtBase[b.side] = b.back
+		end
+	end
+
+	-- A forecourt module needs a building on its side in every column it covers and must stay inside
+	-- the forecourt grid without overlapping another forecourt module (lowest slot id wins).
+	for side = 0, 1 do
+		for d = 0, layout.FORECOURT_ROWS - 1 do L.forecourtAt[side][d] = {}; L.deckAt[side][d] = {} end
+	end
+	local fids = {}
+	for id in pairs(L.forecourts) do fids[#fids + 1] = id end
+	table.sort(fids)
+	for _, id in ipairs(fids) do
+		local _, level, row, seg = layout.decode(id)
+		local side, d, w, h = layout.forecourtDecodeRow(row)
+		local ok = layout.forecourtFits(L, side, d, w, h, seg, nil, level)
+		if ok then
+			local f = L.forecourts[id]
+			f.side, f.d, f.w, f.h, f.seg = side, d, w, h, seg
+			local grid = layout.forecourtGrid(L, level)
+			for dd = d, d + h - 1 do
+				for s = seg, seg + w - 1 do grid[side][dd][s] = id end
+			end
+		else
+			L.forecourts[id] = nil
+			L.ignored[id] = true
+		end
 	end
 	return L
+end
+
+-- Whether a forecourt module of w x h cells at (side, d, seg) fits: inside the grid, a building in every
+-- covered column, and no other module of the same level (other than `selfId`) in the covered cells.
+-- 1F plazas (level 0) and decks (level 1) have separate grids, so a deck may stand over a plaza.
+function layout.forecourtGrid(L, level)
+	return (level == layout.LEVEL.ELEVATED) and L.deckAt or L.forecourtAt
+end
+
+function layout.forecourtFits(L, side, d, w, h, seg, selfId, level)
+	if side > layout.SIDE.PLUS_X or w < 1 or w > layout.MAX_FORECOURT_W or h < 1 or d < 0
+		or d + h > layout.FORECOURT_ROWS then
+		return false
+	end
+	local grid = layout.forecourtGrid(L, level)
+	for s = seg, seg + w - 1 do
+		if not L.buildingAt[side][s] then return false end
+		for dd = d, d + h - 1 do
+			local occ = grid[side][dd] and grid[side][dd][s]
+			if occ and occ ~= selfId then return false end
+		end
+	end
+	return true
 end
 
 function layout.get(L, row, seg)
@@ -297,6 +393,33 @@ end
 function layout.buildingLocalX(side, seg, size, s)
 	local dy = (s - seg) * layout.SEG_LEN - ((size or 1) - 1) * layout.SEG_LEN / 2
 	return side == layout.SIDE.MINUS_X and -dy or dy
+end
+
+-- Forecourt frame: origin at the centre of the covered cells, local +X along the tracks, local +Y towards
+-- the station (same orientation as the building frame). Cell row d starts FORECOURT_CELL * d outside the
+-- forecourt base line.
+function layout.forecourtTransf(L, side, seg, d, w, h)
+	local base = L.forecourtBase[side]
+	if not base then return nil end
+	local C = layout.FORECOURT_CELL
+	local dir = (side == layout.SIDE.MINUS_X) and -1 or 1
+	local x = base + dir * (d * C + h * C / 2)
+	local y = layout.segY(seg) + (w - 1) * layout.SEG_LEN / 2
+	return transf.rotZTransl(math.rad(side == layout.SIDE.MINUS_X and -90 or 90), vec3.new(x, y, 0))
+end
+
+-- Local X (forecourt frame) of the centre of segment column `s` for a module anchored at `seg`, w wide.
+-- The frame is rotated like the building frame, so on the -X side local +X runs towards -Y.
+function layout.forecourtColumnX(side, seg, w, s)
+	return layout.buildingLocalX(side, seg, w, s)
+end
+
+-- Distance from the forecourt base line to the back of the building in column `s` (0 for the deepest).
+function layout.forecourtGap(L, side, s)
+	local bid = L.buildingAt[side][s]
+	local b = bid and L.buildings[bid]
+	if not b or not L.forecourtBase[side] then return 0 end
+	return math.abs(L.forecourtBase[side] - b.back)
 end
 
 function layout.concourseSlotTransf(L, seg)

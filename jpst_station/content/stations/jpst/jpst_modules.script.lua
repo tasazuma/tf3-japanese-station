@@ -241,6 +241,8 @@ local function updateBuilding(captureParams, result, transform, tag, slotId, add
 	local cfg = captureParams
 	local size = b.size
 	local len, depth, height = buildingDims(cfg, size)
+	-- the layout (forecourt base line) uses metadata.jpst_depth; follow it so both agree
+	if b.module and b.module.metadata and b.module.metadata.jpst_depth then depth = b.depth end
 	transform = layout.buildingTransf(L, b.side, b.seg, size)
 
 	for _, m in ipairs(cfg.models or {}) do
@@ -407,6 +409,249 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 	end
 end
 
+-- Forecourt (駅前) -------------------------------------------------------------
+-- Functional part of every forecourt module: ground, terrain and a walkable lane grid; the look comes from
+-- the module params so other mods can add plazas by shipping only a module file (see README "駅前").
+-- Local frame: origin at the centre of the covered w x h cells (40 m each), +X along the tracks, +Y towards
+-- the station. The module spans x = -w*20..w*20, y = -h*20..h*20.
+-- params: ground = { modes } (groundFaces modes, default paving), terrain = "EQUAL" | "LESS" | ...,
+--         cellModels = models placed in every cell relative to the cell centre (same forms as buildings),
+--         models = models placed once relative to the module centre,
+--         lanes = "cross" (default, both directions) | "along" (一の字 along the tracks, x) |
+--                 "through" (一の字 towards the station, y) | "none".
+-- Lanes: a linkable grid through the cell centres, with nodes on the cell edges so neighbouring forecourt
+-- modules connect; modules in the first row also connect to the street lane of the building behind them.
+
+local FORECOURT_GROUND = {
+	{ type = "FILL", key = "::/buildings/shared/building_paving_fill.gtex" },
+	{ type = "STROKE_OUTER", key = "::/infrastructure/street/shared/street_border.gtex" },
+}
+
+local function forecourtCells(w, h)
+	local C = layout.FORECOURT_CELL
+	local xs, ys = {}, {}
+	for i = 0, w - 1 do xs[#xs + 1] = -w * C / 2 + C / 2 + i * C end
+	for j = 0, h - 1 do ys[#ys + 1] = -h * C / 2 + C / 2 + j * C end
+	return xs, ys
+end
+
+local function updateForecourt(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local J = result.jpst
+	local L = J.layout
+	local f = L.forecourts[slotId]
+	if L.ignored[slotId] or not f or f.level ~= layout.LEVEL.GROUND then return end
+	local cs = result.cargoStation
+	local cfg = captureParams or {}
+	local C = layout.FORECOURT_CELL
+	local w, h = f.w, f.h
+	local hx, hy = w * C / 2, h * C / 2
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	local modes = cfg.ground or FORECOURT_GROUND
+	local align = cfg.terrain or "EQUAL"
+
+	addBox(cs, transform, -hx, -hy, hx, hy, nil, align, modes)
+
+	local xs, ys = forecourtCells(w, h)
+	for _, x in ipairs(xs) do
+		for _, y in ipairs(ys) do
+			for _, m in ipairs(cfg.cellModels or {}) do
+				local id, t = buildingModelTransf(m)
+				addModelTo(cs.models, id, transform, transf.mul(transf.transl(vec3.new(x, y, 0)), t), tag)
+			end
+		end
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		addModelTo(cs.models, id, transform, t, tag)
+	end
+
+	-- lane grid: one lane per cell row (along X) and per cell column (along Y), edge to edge
+	local pattern = cfg.lanes or "cross"
+	local alongX = pattern == "cross" or pattern == "along"
+	local alongY = pattern == "cross" or pattern == "through"
+	if alongX then for _, y in ipairs(ys) do
+		local pts = { { -hx, y, 0 } }
+		for _, x in ipairs(xs) do pts[#pts + 1] = { x, y, 0 } end
+		pts[#pts + 1] = { hx, y, 0 }
+		layout.addLane(cs, pts, LANE_WIDTH, true, transform)
+	end end
+	for s = f.seg, f.seg + w - 1 do
+		local x = layout.forecourtColumnX(f.side, f.seg, w, s)
+		if alongY then
+			local pts = { { x, -hy, 0 } }
+			for _, y in ipairs(ys) do pts[#pts + 1] = { x, y, 0 } end
+			pts[#pts + 1] = { x, hy, 0 }
+			layout.addLane(cs, pts, LANE_WIDTH, true, transform)
+		end
+		if f.d == 0 then
+			-- bridge the gap to a shallower building and reach its street lane (3 m inside its back)
+			local gap = layout.forecourtGap(L, f.side, s)
+			if gap > 0.01 then
+				addBox(cs, transform, x - C / 2, hy, x + C / 2, hy + gap, nil, align, modes)
+			end
+			if alongY then
+				layout.addLane(cs, { { x, hy, 0 }, { x, hy + gap + 3, 0 } }, LANE_WIDTH, false, transform)
+			end
+		end
+	end
+end
+
+-- Pedestrian deck (ペデストリアンデッキ) ------------------------------------------------
+-- Forecourt level 1: the same 40 m grid as the 1F plazas, floor at DZ (= 2F concourse height), so a deck
+-- can stand over a plaza. Functional part: walkway lanes on the deck, the link into the station (through
+-- the building at 2F straight onto a 2F concourse in that column, and down into the building hall), and
+-- stairs down to street level whose foot meets the 1F plaza lane grid at the cell centre.
+-- Frame and params as forecourt, plus:
+--   structure = true (default) | false: stand-in concrete walkways, piers and stairs (false = skin draws all)
+--   walkWidth = walkway width in m (3..10, default 8)
+--   stairs = "outer" (default, one per column in the outermost cell row) | "all" (every cell) | "none"
+--   models / cellModels are placed relative to the deck floor (z = 0 is the deck surface).
+-- Stairs sit at x = cell centre + 16, running from the walkway edge 15 m away from the station.
+
+local DZ = layout.DECK_Z
+local STAIR_X = 16
+local STAIR_RUN = 15
+
+local function updateDeck(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local J = result.jpst
+	local L = J.layout
+	local f = L.forecourts[slotId]
+	if L.ignored[slotId] or not f or f.level ~= ELEVATED then return end
+	local cs = result.cargoStation
+	local cfg = captureParams or {}
+	local C = layout.FORECOURT_CELL
+	local w, h = f.w, f.h
+	local hx, hy = w * C / 2, h * C / 2
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	local structure = cfg.structure ~= false
+	local ww = math.max(3, math.min(10, cfg.walkWidth or 8))
+	local pattern = cfg.lanes or "cross"
+	local alongX = pattern == "cross" or pattern == "along"
+	local alongY = pattern == "cross" or pattern == "through"
+	local stairs = cfg.stairs or "outer"
+	local xs, ys = forecourtCells(w, h)
+
+	local function beam(p0, p1, width, depthScale)
+		if structure then addModelTo(cs.models, DECK_MODEL, transform, beamTransf(p0, p1, width, depthScale), tag) end
+	end
+	local function pier(x, y)
+		if not structure then return end
+		local t = transf.scaleXYZRotZTransl(vec3.new(1, 1, (DZ - DECK_DEPTH) / 4), math.rad(90), vec3.new(x + 1.5, y, 0))
+		addModelTo(cs.models, PILLAR_MODEL, transform, t, tag)
+	end
+
+	for _, x in ipairs(xs) do
+		for _, y in ipairs(ys) do
+			for _, m in ipairs(cfg.cellModels or {}) do
+				local id, t = buildingModelTransf(m)
+				addModelTo(cs.models, id, transform, transf.mul(transf.transl(vec3.new(x, y, DZ)), t), tag)
+			end
+			for _, px in ipairs({ -3, 3 }) do for _, py in ipairs({ -3, 3 }) do pier(x + px, y + py) end end
+		end
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		addModelTo(cs.models, id, transform, transf.mul(transf.transl(vec3.new(0, 0, DZ)), t), tag)
+	end
+
+	-- walkways: lanes edge to edge through the cell centres (nodes on the edges join neighbouring decks)
+	if alongX then for _, y in ipairs(ys) do
+		local pts = { { -hx, y, DZ } }
+		for _, x in ipairs(xs) do pts[#pts + 1] = { x, y, DZ } end
+		pts[#pts + 1] = { hx, y, DZ }
+		layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+		beam({ -hx, y, DZ }, { hx, y, DZ }, ww)
+	end end
+	for s = f.seg, f.seg + w - 1 do
+		local x = layout.forecourtColumnX(f.side, f.seg, w, s)
+		if alongY then
+			local pts = { { x, -hy, DZ } }
+			for _, y in ipairs(ys) do pts[#pts + 1] = { x, y, DZ } end
+			pts[#pts + 1] = { x, hy, DZ }
+			layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+			-- split around the crossing walkways so the stretched pieces do not overlap (z-fighting)
+			local y0 = -hy
+			for _, y in ipairs(ys) do
+				local y1 = alongX and (y - ww / 2) or y
+				if y1 - y0 > 0.01 then beam({ x, y0, DZ }, { x, y1, DZ }, ww) end
+				y0 = alongX and (y + ww / 2) or y
+			end
+			if hy - y0 > 0.01 then beam({ x, y0, DZ }, { x, hy, DZ }, ww) end
+		end
+		if f.d == 0 then
+			-- into the station: over the gap to a shallower building, then through the building at 2F
+			local b = L.buildings[L.buildingAt[f.side][s]]
+			local yBack = hy + layout.forecourtGap(L, f.side, s)
+			local yFront = yBack + b.depth
+			local pts = { { x, hy, DZ } }
+			if not alongY then
+				pts = { { x, ys[#ys], DZ }, { x, hy, DZ } }
+				beam({ x, ys[#ys] + (alongX and ww / 2 or 0), DZ }, { x, hy, DZ }, ww)
+			end
+			if yBack - hy > 0.01 then
+				pts[#pts + 1] = { x, yBack, DZ }
+				beam({ x, hy, DZ }, { x, yBack, DZ }, ww)
+			end
+			if L.concourses[s] then pts[#pts + 1] = { x, yFront, DZ } end
+			layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+			-- down into the building hall (same node as the building's hall lane)
+			layout.addLane(cs, { { x, yBack, DZ }, { x, yFront + BUILDING_HALL_Y, 0 } }, LANE_WIDTH, false, transform)
+		end
+	end
+
+	-- stairs to street level; the foot lane is linkable and ends on the 1F plaza grid node at the cell centre
+	if stairs ~= "none" then
+		for _, x in ipairs(xs) do
+			for j, y in ipairs(ys) do
+				if stairs == "all" or j == 1 then
+					local sx = x + STAIR_X
+					local yTop = y - ww / 2
+					local yFoot = yTop - STAIR_RUN
+					layout.addLane(cs, { { x, y, DZ }, { sx, y, DZ }, { sx, yTop, DZ } }, LANE_WIDTH, false, transform)
+					layout.addLane(cs, { { sx, yTop, DZ }, { sx, yFoot, 0 } }, LANE_WIDTH, false, transform)
+					layout.addLane(cs, { { sx, yFoot, 0 }, { x, y, 0 } }, LANE_WIDTH, true, transform)
+					if not alongX then beam({ x + (alongY and ww / 2 or 0), y, DZ }, { sx + RAMP_WIDTH / 2, y, DZ }, ww) end
+					beam({ sx, yTop, DZ }, { sx, yFoot, 0 }, RAMP_WIDTH, RAMP_DEPTH_SCALE)
+					addBox(cs, transform, sx - 2, yFoot - 1, sx + 2, yFoot + 4, nil, "EQUAL", layout.GROUND_MODES_PLATFORM)
+				end
+			end
+		end
+	end
+end
+
+local function getModelsDeck(captureParams, params)
+	local res = {}
+	local cfg = captureParams or {}
+	if cfg.structure ~= false then
+		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, 8) }
+		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ 0, -10, 0 }, { 0, -4, 0 }, 8) }
+		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ 0, 4, 0 }, { 0, 10, 0 }, 8) }
+	end
+	for _, m in ipairs(cfg.cellModels or {}) do
+		local id, t = buildingModelTransf(m)
+		table.insert(res, { id = id, transf = t })
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		table.insert(res, { id = id, transf = t })
+	end
+	return res
+end
+
+local function getModelsForecourt(captureParams, params)
+	local res = {}
+	local cfg = captureParams or {}
+	for _, m in ipairs(cfg.cellModels or {}) do
+		local id, t = buildingModelTransf(m)
+		table.insert(res, { id = id, transf = t })
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		table.insert(res, { id = id, transf = t })
+	end
+	return res
+end
+
 local function getModelsConcourse(captureParams, params)
 	return {
 		{ id = DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, CHW * 2) },
@@ -439,6 +684,14 @@ function data()
 		concourse = {
 			updateFn = updateConcourse,
 			getModelsFn = getModelsConcourse,
+		},
+		forecourt = {
+			updateFn = updateForecourt,
+			getModelsFn = getModelsForecourt,
+		},
+		deck = {
+			updateFn = updateDeck,
+			getModelsFn = getModelsDeck,
 		},
 	}
 end

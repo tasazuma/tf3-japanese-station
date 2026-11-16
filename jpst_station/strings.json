@@ -56,7 +56,19 @@
 		"JPST_PARAM_BUILDING": "Station building",
 		"JPST_BUILDING_PARAM_SMALL": "Small",
 		"JPST_BUILDING_PARAM_LARGE": "Large (full length)",
-		"JPST_BUILDING_PARAM_NONE": "None"
+		"JPST_BUILDING_PARAM_NONE": "None",
+		"JPST_FORECOURT_PAVED_1x1_NAME": "Paved plaza 1x1",
+		"JPST_FORECOURT_PAVED_2x1_NAME": "Paved plaza 2x1",
+		"JPST_FORECOURT_PAVED_2x2_NAME": "Paved plaza 2x2",
+		"JPST_FORECOURT_GREEN_1x1_NAME": "Green plaza 1x1",
+		"JPST_FORECOURT_GREEN_2x1_NAME": "Green plaza 2x1",
+		"JPST_FORECOURT_GREEN_2x2_NAME": "Green plaza 2x2",
+		"JPST_FORECOURT_PAVED_DESC": "Station forecourt (40 m cells) behind the station building, with lights and benches. Pedestrians walk across it to the building.",
+		"JPST_FORECOURT_GREEN_DESC": "Station forecourt (40 m cells) with lawn and trees. Pedestrians walk across it to the building.",
+		"JPST_DECK_CONCRETE_1x1_NAME": "Pedestrian deck 1x1",
+		"JPST_DECK_CONCRETE_2x1_NAME": "Pedestrian deck 2x1",
+		"JPST_DECK_CONCRETE_2x2_NAME": "Pedestrian deck 2x2",
+		"JPST_DECK_CONCRETE_DESC": "Elevated pedestrian deck (40 m cells, 2F level) behind the station building. Joins a 2F concourse directly and has stairs down to the street / plaza below."
 	},
 	"ja": {
 		"JPST_STATION_NAME": "日本風モジュール駅",
@@ -115,6 +127,18 @@
 		"JPST_PARAM_BUILDING": "駅舎",
 		"JPST_BUILDING_PARAM_SMALL": "小さな駅舎",
 		"JPST_BUILDING_PARAM_LARGE": "大きな駅舎（全長）",
-		"JPST_BUILDING_PARAM_NONE": "なし"
+		"JPST_BUILDING_PARAM_NONE": "なし",
+		"JPST_FORECOURT_PAVED_1x1_NAME": "舗装広場 1x1",
+		"JPST_FORECOURT_PAVED_2x1_NAME": "舗装広場 2x1",
+		"JPST_FORECOURT_PAVED_2x2_NAME": "舗装広場 2x2",
+		"JPST_FORECOURT_GREEN_1x1_NAME": "緑地広場 1x1",
+		"JPST_FORECOURT_GREEN_2x1_NAME": "緑地広場 2x1",
+		"JPST_FORECOURT_GREEN_2x2_NAME": "緑地広場 2x2",
+		"JPST_FORECOURT_PAVED_DESC": "駅舎の外側に置く駅前広場（1マス40m）。街灯とベンチ付き。歩行者は広場を通って駅舎に入れます。",
+		"JPST_FORECOURT_GREEN_DESC": "芝生と木のある駅前広場（1マス40m）。歩行者は広場を通って駅舎に入れます。",
+		"JPST_DECK_CONCRETE_1x1_NAME": "ペデストリアンデッキ 1x1",
+		"JPST_DECK_CONCRETE_2x1_NAME": "ペデストリアンデッキ 2x1",
+		"JPST_DECK_CONCRETE_2x2_NAME": "ペデストリアンデッキ 2x2",
+		"JPST_DECK_CONCRETE_DESC": "駅舎の裏に置く2F高さの歩行者デッキ（40mマス）。橋上コンコースと同じ高さで直結し、階段で下の道路・広場へ降りられます。"
 	}
 }

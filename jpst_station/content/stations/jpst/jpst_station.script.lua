@@ -164,9 +164,34 @@ local function addSlots(result, L, modules)
 				if ok then
 					-- The box must end exactly at the front: reaching past it would overlap the outermost
 					-- ground track/platform box, and the game then refuses to place into the slot.
+					-- A placed building only reaches its own depth so the forecourt slots behind it stay free.
 					local half = layout.SEG_LEN * size / 2 - 0.5
+					local b = L.buildings[id]
 					addSlot(id, layout.buildingTransf(L, side, seg, size), layout.buildingSlotType(size),
-						{ half, half, 40, 0 })
+						{ half, half, b and b.depth or 40, 0 })
+				end
+			end
+		end
+	end
+
+	-- Forecourt slots of every size behind the station buildings (only where buildings stand):
+	-- 1F plazas on the ground, pedestrian decks (level 1) at DECK_Z over the same grid.
+	local C = layout.FORECOURT_CELL
+	for _, level in ipairs({ GROUND, layout.LEVEL.ELEVATED }) do
+		local z = (level == GROUND) and 0 or layout.DECK_Z
+		for _, side in ipairs({ layout.SIDE.MINUS_X, layout.SIDE.PLUS_X }) do
+			for seg, _ in pairs(L.buildingAt[side]) do
+				for d = 0, layout.FORECOURT_ROWS - 1 do
+					for h = 1, layout.FORECOURT_ROWS - d do
+						for w = 1, layout.MAX_FORECOURT_W do
+							local id = layout.encode(KIND.FORECOURT, level, layout.forecourtRow(side, d, w, h), seg)
+							if layout.forecourtFits(L, side, d, w, h, seg, id, level) then
+								local hx, hy = w * C / 2 - 0.5, h * C / 2 - 0.5
+								local tf = transf.mul(transf.transl(vec3.new(0, 0, z)), layout.forecourtTransf(L, side, seg, d, w, h))
+								addSlot(id, tf, layout.forecourtSlotType(w, h, level), { hx, hx, hy, hy })
+							end
+						end
+					end
 				end
 			end
 		end
@@ -183,8 +208,9 @@ local function addSlots(result, L, modules)
 	for id in pairs(L.ignored) do
 		local kind, level, row, seg = layout.decode(id)
 		local tf
-		if kind == KIND.BUILDING then
-			tf = transf.transl(vec3.new(0, layout.segY(seg), 0))
+		if kind == KIND.BUILDING or kind == KIND.FORECOURT then
+			local z = (kind == KIND.FORECOURT and level == layout.LEVEL.ELEVATED) and layout.DECK_Z or 0
+			tf = transf.transl(vec3.new(0, layout.segY(seg), z))
 		elseif kind == KIND.CONCOURSE then
 			tf = transf.transl(vec3.new(0, layout.segY(seg), layout.CONCOURSE_Z))
 		else

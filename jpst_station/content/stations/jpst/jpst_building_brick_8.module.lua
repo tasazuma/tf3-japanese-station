@@ -54,6 +54,7 @@ function data()
 		},
 		type = "jpst_building_8",
 		metadata = {
+			jpst_depth = 40,
 			moreCapacity = { passenger = 800 },
 			emissionConfig = { noise = 1, pollution = 40 },
 			catchmentPassenger = { radius = 250 },
