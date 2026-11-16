@@ -68,7 +68,10 @@
 		"JPST_DECK_CONCRETE_1x1_NAME": "Pedestrian deck 1x1",
 		"JPST_DECK_CONCRETE_2x1_NAME": "Pedestrian deck 2x1",
 		"JPST_DECK_CONCRETE_2x2_NAME": "Pedestrian deck 2x2",
-		"JPST_DECK_CONCRETE_DESC": "Elevated pedestrian deck (40 m cells, 2F level) behind the station building. Joins a 2F concourse directly and has stairs down to the street / plaza below."
+		"JPST_DECK_CONCRETE_DESC": "Elevated pedestrian deck (40 m cells, 2F level) behind the station building. Joins a 2F concourse directly and has stairs down to the street / plaza below.",
+		"JPST_BUSROTARY_BASIC_1x1_NAME": "Bus rotary 1x1 (1 stop)",
+		"JPST_BUSROTARY_BASIC_2x1_NAME": "Bus rotary 2x1 (2 stops)",
+		"JPST_BUSROTARY_BASIC_DESC": "Bus loop in front of the station building (1F, 40 m cells) with one bus stop per cell along the station side. Connect a road to the street stub on the outer edge. The bus stops belong to this station."
 	},
 	"ja": {
 		"JPST_STATION_NAME": "日本風モジュール駅",
@@ -139,6 +142,9 @@
 		"JPST_DECK_CONCRETE_1x1_NAME": "ペデストリアンデッキ 1x1",
 		"JPST_DECK_CONCRETE_2x1_NAME": "ペデストリアンデッキ 2x1",
 		"JPST_DECK_CONCRETE_2x2_NAME": "ペデストリアンデッキ 2x2",
-		"JPST_DECK_CONCRETE_DESC": "駅舎の裏に置く2F高さの歩行者デッキ（40mマス）。橋上コンコースと同じ高さで直結し、階段で下の道路・広場へ降りられます。"
+		"JPST_DECK_CONCRETE_DESC": "駅舎の裏に置く2F高さの歩行者デッキ（40mマス）。橋上コンコースと同じ高さで直結し、階段で下の道路・広場へ降りられます。",
+		"JPST_BUSROTARY_BASIC_1x1_NAME": "バスロータリー 1x1（乗り場1）",
+		"JPST_BUSROTARY_BASIC_2x1_NAME": "バスロータリー 2x1（乗り場2）",
+		"JPST_BUSROTARY_BASIC_DESC": "駅舎前（1F、40mマス）のバス用ループ。駅舎側にマスごとに1つバス乗り場があります。外側の道路接続口に道路をつないでください。乗り場はこの駅の一部になります。"
 	}
 }

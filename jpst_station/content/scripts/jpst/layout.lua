@@ -427,6 +427,43 @@ function layout.concourseSlotTransf(L, seg)
 	return transf.transl(vec3.new((xL + xR) / 2, layout.segY(seg), layout.CONCOURSE_Z))
 end
 
+-- Bus rotary (バスロータリー): a 1F forecourt module; geometry in the forecourt frame (+Y towards the station).
+layout.ROTARY = {
+	SIDEWALK = 8,   -- sidewalk depth on the station side
+	STOP = 10,      -- bus stop lane: hy - STOP
+	WALK = 6.5,     -- sidewalk lane: hy - WALK
+	ENTRY = 8,      -- street stub length from the outer edge
+	TURN = 12,      -- stop straight ends at +-(hx - TURN)
+}
+
+function layout.rotaryGeometry(w, h)
+	local R = layout.ROTARY
+	local C = layout.FORECOURT_CELL
+	local hx, hy = w * C / 2, h * C / 2
+	local g = { hx = hx, hy = hy }
+	g.kerbY = hy - R.SIDEWALK
+	g.stopY = hy - R.STOP
+	g.walkY = hy - R.WALK
+	g.entryY = -hy + R.ENTRY
+	g.stopX = hx - R.TURN
+	local midY = (g.entryY + 4 + g.stopY) / 2
+	g.inbound = { { 2.5, g.entryY, 0 }, { hx - 9, g.entryY + 4, 0 }, { hx - 6, midY, 0 }, { g.stopX, g.stopY, 0 } }
+	g.outbound = {}
+	for i = #g.inbound, 1, -1 do
+		local p = g.inbound[i]
+		g.outbound[#g.outbound + 1] = { -p[1], p[2], 0 }
+	end
+	g.island = { -(hx - 13), g.entryY + 7, hx - 13, g.stopY - 4 }
+	-- terminals: cell column boundaries clipped to the stop straight, from +X (where buses arrive) to -X
+	g.stops = {}
+	for i = w - 1, 0, -1 do
+		local x1 = math.min(-hx + (i + 1) * C, g.stopX)
+		local x0 = math.max(-hx + i * C, -g.stopX)
+		if x1 - x0 > 1 then g.stops[#g.stops + 1] = { x1, x0 } end
+	end
+	return g
+end
+
 -- Lanes ------------------------------------------------------------------
 
 -- Straight polyline lane; every point becomes a shared node.
@@ -450,6 +487,39 @@ end
 -- Adds a lane to station (cargoStation) and returns its 0-based index.
 function layout.addLane(station, points, width, linkable, localTransf)
 	table.insert(station.laneLists, layout.makeLane(points, width, linkable, localTransf))
+	return #station.laneLists - 1
+end
+
+-- Smooth lane through points (Catmull-Rom tangents; t0 / t1 = optional unit tangents at the ends),
+-- for vehicles. Every point becomes a shared node, so lanes meeting at a point connect.
+function layout.addCurveLane(station, points, width, modes, t0, t1, localTransf)
+	local n = #points
+	local function unit(v)
+		local l = math.sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
+		return l > 1e-9 and { v[1] / l, v[2] / l, v[3] / l } or { 0, 0, 0 }
+	end
+	local tangents = {}
+	for i = 1, n do
+		local a, b = points[math.max(i - 1, 1)], points[math.min(i + 1, n)]
+		tangents[i] = unit({ b[1] - a[1], b[2] - a[2], b[3] - a[3] })
+	end
+	if t0 then tangents[1] = unit(t0) end
+	if t1 then tangents[n] = unit(t1) end
+	local nodes = {}
+	for i = 1, n - 1 do
+		local a, b = points[i], points[i + 1]
+		local len = math.sqrt((b[1] - a[1]) ^ 2 + (b[2] - a[2]) ^ 2 + (b[3] - a[3]) ^ 2)
+		local ta, tb = tangents[i], tangents[i + 1]
+		nodes[#nodes + 1] = { { a[1], a[2], a[3] }, { ta[1] * len, ta[2] * len, ta[3] * len }, width }
+		nodes[#nodes + 1] = { { b[1], b[2], b[3] }, { tb[1] * len, tb[2] * len, tb[3] * len }, width }
+	end
+	table.insert(station.laneLists, {
+		transf = localTransf or transf.identity(),
+		nodes = nodes,
+		speedLimit = 20,
+		transportModes = modes,
+		linkable = false,
+	})
 	return #station.laneLists - 1
 end
 

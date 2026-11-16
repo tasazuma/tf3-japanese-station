@@ -313,6 +313,8 @@ local function updateFn(captureParams, params)
 		layout = L,
 		tracks = {},    -- tracks[row][seg] = { list, nedges }
 		platforms = {}, -- platforms[row][seg] = { minus = laneIdx, plus = laneIdx }
+		busStops = {},  -- bus stop terminals from bus rotary modules (lane indices into cargoStation.laneLists)
+		streets = {},   -- street edge lists (rotary stubs), appended after the track lists in the hook
 	}
 
 	addSlots(result, L, modules)
@@ -333,6 +335,20 @@ local function updateFn(captureParams, params)
 		local cs = result.cargoStation
 
 		local terminals = buildTerminals(result, L)
+		for _, b in ipairs(result.jpst.busStops) do
+			table.insert(terminals, {
+				personEdges = b.personEdges,
+				personNodes = b.personNodes,
+				vehicleNode = b.vehicleNode,
+				vehicleEdges = b.vehicleEdges,
+				transportModes = { "BUS" },
+				passengers = true,
+				tag = #terminals + 1,
+				length = b.length,
+			})
+		end
+		-- after buildTerminals: track node indices and edgeListHasCatenary only cover the track lists
+		for _, el in ipairs(result.jpst.streets) do table.insert(result.edgeLists, el) end
 		local passCap = modulesutil.getStationPoolCapacities(params.modules, result)
 		local comfort = modulesutil.getStationPoolComfortFactor(params.modules, result)
 		local emissions = modulesutil.getModulesEmissions(params.modules, result)

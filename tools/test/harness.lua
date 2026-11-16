@@ -933,3 +933,155 @@ for _, pat in ipairs({ "cross", "along", "through" }) do for _, st in ipairs({ "
 	end
 	fcCheck(("deck lanes=%s stairs=%s"):format(pat, st), m, 0, expect)
 end end
+
+-- 13) bus rotary (バスロータリー): 1F forecourt module with a bus loop and bus stop terminals
+print("== bus rotary ==")
+local ROT = function(w, h) return layout.moduleName(("jpst_busrotary_basic_%dx%d"):format(w, h)) end
+local function wpt(t, x, y, z)
+	return t[1] * x + t[5] * y + t[9] * z + t[13], t[2] * x + t[6] * y + t[10] * z + t[14], t[3] * x + t[7] * y + t[11] * z + t[15]
+end
+local function rotCheck(label, m, expectStops, expectIgnored)
+	local r = build({ modulesByName = m })
+	local L = r.jpst.layout
+	local cs = r.cargoStation
+	local compAt, compOfLane = components(r)
+	local terms = cs.station.terminals
+	local fail = {}
+	local trainTerm = compOfLane(terms[1].personEdges[1][1] + 1)
+	local bus = 0
+	for i, t in ipairs(terms) do
+		if t.tag ~= i then fail[#fail + 1] = "tag" end
+		if t.transportModes[1] == "BUS" then
+			bus = bus + 1
+			local vl = cs.laneLists[t.vehicleNode[1] + 1]
+			if not vl or vl.transportModes[1] ~= "BUS" or #vl.nodes < t.vehicleNode[2] + 1 then fail[#fail + 1] = "vehicleNode" end
+			for _, e in ipairs(t.vehicleEdges) do
+				if e[1] ~= t.vehicleNode[1] or 2 * e[2] + 2 > #vl.nodes then fail[#fail + 1] = "vehicleEdge" end
+			end
+			for _, pe in ipairs(t.personEdges) do
+				local pl = cs.laneLists[pe[1] + 1]
+				if pl.transportModes[1] ~= "PERSON" or 2 * pe[2] + 2 > #pl.nodes then fail[#fail + 1] = "personEdge" end
+				if compOfLane(pe[1] + 1) ~= trainTerm then fail[#fail + 1] = "stop not reachable from the platforms" end
+			end
+			for _, pn in ipairs(t.personNodes) do
+				if pn[2] + 1 > #cs.laneLists[pn[1] + 1].nodes then fail[#fail + 1] = "personNode" end
+			end
+			if not t.cargoTransferSpeeds or t.cargoTransferSpeeds[1].length <= 0 then fail[#fail + 1] = "length" end
+		end
+	end
+	if bus ~= expectStops then fail[#fail + 1] = ("stops %d ~= %d"):format(bus, expectStops) end
+	-- street stubs: one per placed rotary, after the track lists, outer node on the module edge; the loop
+	-- ends meet the stub's driving lanes (inner node +-2.5 m) and the whole loop is one component
+	local stubs = 0
+	for i, el in ipairs(r.edgeLists) do
+		if el.type == "STREET" then
+			stubs = stubs + 1
+			if r.edgeListHasCatenary[i] ~= nil then fail[#fail + 1] = "street list before track lists" end
+			if el.snapNodes[1] ~= 0 or #el.edges ~= 2 then fail[#fail + 1] = "stub shape" end
+		elseif stubs > 0 then fail[#fail + 1] = "track list after street list" end
+	end
+	local placed = 0
+	for id, f in pairs(L.forecourts) do
+		if m[id] and m[id]:match("busrotary") then
+			placed = placed + 1
+			local g = layout.rotaryGeometry(f.w, f.h)
+			local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+			local found = false
+			for _, el in ipairs(r.edgeLists) do
+				if el.type == "STREET" then
+					local ox, oy = wpt(tf, 0, -g.hy, 0)
+					local p = el.edges[1][1]
+					if math.abs(p[1] - ox) < 0.01 and math.abs(p[2] - oy) < 0.01 then found = true end
+				end
+			end
+			if not found then fail[#fail + 1] = "stub not at the outer edge" end
+			local ix, iy = wpt(tf, 2.5, g.entryY, 0)
+			local ox2, oy2 = wpt(tf, -2.5, g.entryY, 0)
+			local a, b = compAt(ix, iy, 0), compAt(ox2, oy2, 0)
+			if not a or a ~= b then fail[#fail + 1] = "bus loop not closed" end
+			-- sidewalk side edges meet the neighbouring plaza grid rows
+			local ex, ey = wpt(tf, -g.hx, -g.hy + 20, 0)
+			if not compAt(ex, ey, 0) then fail[#fail + 1] = "no side node" end
+		end
+	end
+	if stubs ~= placed then fail[#fail + 1] = ("stubs %d ~= placed %d"):format(stubs, placed) end
+	if nIgnored(r) ~= (expectIgnored or 0) then fail[#fail + 1] = "ignored " .. nIgnored(r) end
+	local nan = 0
+	for _, mdl in ipairs(cs.models) do for i = 1, 16 do if mdl.transf[i] ~= mdl.transf[i] then nan = nan + 1 end end end
+	for _, ll in ipairs(cs.laneLists) do for _, n in ipairs(ll.nodes) do for k = 1, 3 do
+		if n[1][k] ~= n[1][k] or n[2][k] ~= n[2][k] then nan = nan + 1 end
+	end end end
+	if nan > 0 then fail[#fail + 1] = "NaN " .. nan end
+	print(("%s%s terminals=%d bus=%d stubs=%d %s"):format(#fail > 0 and "FAIL " or "", label, #terms, bus, stubs,
+		table.concat(fail, ", ")))
+	return r
+end
+for lvl = 1, 2 do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl })
+	local L0 = build({ modulesByName = m }).jpst.layout
+	local s0 = math.huge for s in pairs(L0.buildingAt[MINUS]) do s0 = math.min(s0, s) end
+	m[fcid(MINUS, 0, 1, 1, s0)] = ROT(1, 1)
+	rotCheck("lvl " .. lvl .. " 1x1", m, 1)
+	m[fcid(MINUS, 0, 2, 1, s0 + 1)] = ROT(2, 1)
+	rotCheck("lvl " .. lvl .. " 1x1 + 2x1", m, 3)
+	-- a plaza between the rotary and the station; a plaza beside it
+	local m2 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl })
+	m2[fcid(MINUS, 0, 2, 1, s0)] = PAVED(2, 1)
+	m2[fcid(MINUS, 1, 2, 1, s0)] = ROT(2, 1)
+	m2[fcid(MINUS, 1, 1, 1, s0 + 2)] = GREEN(1, 1)
+	m2[fcid(MINUS, 0, 1, 1, s0 + 2)] = PAVED(1, 1)
+	rotCheck("lvl " .. lvl .. " behind a plaza", m2, 2)
+	-- under a deck
+	local m3 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl, jpst_passage = 2 })
+	m3[fcid(MINUS, 0, 2, 1, s0)] = ROT(2, 1)
+	m3[dkid(MINUS, 0, 2, 1, s0)] = DECK(2, 1)
+	rotCheck("lvl " .. lvl .. " under a deck", m3, 2)
+end
+-- mixed depths (small / wood / small): the connector of every column reaches its building street lane
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+	m[bid(MINUS, 1, -1)] = layout.moduleName("jpst_building_small")
+	m[bid(MINUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+	m[fcid(MINUS, 0, 2, 1, 0)] = ROT(2, 1)
+	m[fcid(MINUS, 0, 1, 1, -1)] = ROT(1, 1)
+	local r = rotCheck("mixed depths", m, 3)
+	local L = r.jpst.layout
+	for s = -1, 1 do
+		local b = L.buildings[L.buildingAt[MINUS][s]]
+		if nodesAt(r, b.front - (b.depth - 3), layout.segY(s), 0) < 3 then print("FAIL rotary connector misses column", s) end
+	end
+	-- both sides
+	local m2 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 4, jpst_tracks = 4, jpst_level = 2 })
+	m2[bid(PLUS, 4, -2)] = brick(4)
+	m2[fcid(PLUS, 0, 2, 1, -2)] = ROT(2, 1)
+	m2[fcid(MINUS, 0, 1, 1, -1)] = ROT(1, 1)
+	rotCheck("both sides", m2, 3)
+	-- no building on that side: ignored, no terminal, no stub
+	local m3 = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
+	m3[fcid(PLUS, 0, 1, 1, 0)] = ROT(1, 1)
+	rotCheck("side without building", m3, 0, 1)
+end
+-- slot overlap with a rotary placed
+do
+	local bad = 0
+	for lvl = 1, 2 do for b = 1, 3 do
+		local m = script.createTemplateFn({}, { jpst_building = b, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl })
+		m[bid(PLUS, 1, 1)] = "jpst_building_example::/stations/jpst_example/jpstx_building_wood.module"
+		m[fcid(PLUS, 0, 1, 1, 1)] = ROT(1, 1)
+		local r = build({ modulesByName = m })
+		local k = blockedSlots(m, r, "^jpst_forecourt") + blockedSlots(m, r, "^jpst_building") + blockedSlots(m, r, "^jpst_deck")
+		if k > 0 or nIgnored(r) > 0 then bad = bad + 1; print("FAIL rotary slot overlap", lvl, b, k) end
+	end end
+	print("rotary slot overlap check bad", bad)
+end
+
+-- 14) deck without a 2F concourse right behind the building: no empty lane lists
+print("== deck without concourse ==")
+do
+	local m5 = script.createTemplateFn({}, { jpst_passage = 1, jpst_length = 3, jpst_tracks = 2, jpst_building = 1 })
+	m5[dkid(MINUS, 0, 1, 1, 0)] = DECK(1, 1)
+	local r5 = build({ modulesByName = m5 })
+	for _, ll in ipairs(r5.cargoStation.laneLists) do if #ll.nodes == 0 then print("FAIL empty lane list") end end
+	io.write("deck no concourse ignored=" .. nIgnored(r5) .. " ")
+	connectivity("", r5)
+end

@@ -496,6 +496,171 @@ local function updateForecourt(captureParams, result, transform, tag, slotId, ad
 	end
 end
 
+-- Bus rotary (バスロータリー) ------------------------------------------------------------
+-- A 1F forecourt module (same slots / grid as the plazas) with a bus loop and one bus stop terminal per
+-- cell column along the station side. Functional part: street stub at the outer edge (centre, snaps to a
+-- road), one-lane bus loop (lanes, like the vanilla street station), stop lanes + sidewalk terminals, and a
+-- linkable sidewalk that reaches the building street lane (row 0), the plaza grid of neighbouring modules
+-- (side edges, through the cell-centre rows) and the next module towards the station (row > 0).
+-- Local frame as forecourt (+Y towards the station). Buses run counter-clockwise seen from above:
+-- in at x = +2.5, along the stops towards -X, out at x = -2.5.
+-- params: ground / sidewalkGround / islandGround = groundFaces modes, terrain = "EQUAL" | ...,
+--         streetTemplate = street template of the stub (default entrance_new),
+--         stopModels = models per terminal, relative to (terminal centre x, kerb y), +Y = into the sidewalk,
+--         models = models relative to the module centre.
+
+local ROTARY_GROUND = {
+	{ type = "FILL", key = "::/infrastructure/street/shared/street_fill.gtex" },
+	{ type = "STROKE_OUTER", key = "::/infrastructure/street/shared/street_border.gtex" },
+}
+local ROTARY_SIDEWALK = {
+	{ type = "FILL", key = "::/infrastructure/street/shared/street_sidewalk_fill.gtex" },
+}
+local ROTARY_ISLAND = {
+	{ type = "FILL", key = "::/terrain/materials/grass_cutted_01/grass_cutted_01.gtex" },
+	{ type = "STROKE_OUTER", key = "::/infrastructure/street/shared/street_border.gtex" },
+}
+local BUS_MODES = { "BUS" }
+local BUS_LANE_WIDTH = 3
+local function lpt(t, x, y, z)
+	return { t[1] * x + t[5] * y + t[9] * z + t[13], t[2] * x + t[6] * y + t[10] * z + t[14],
+		t[3] * x + t[7] * y + t[11] * z + t[15] }
+end
+local function ldir(t, x, y, z)
+	return { t[1] * x + t[5] * y + t[9] * z, t[2] * x + t[6] * y + t[10] * z, t[3] * x + t[7] * y + t[11] * z }
+end
+
+local function updateBusRotary(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local J = result.jpst
+	local L = J.layout
+	local f = L.forecourts[slotId]
+	if L.ignored[slotId] or not f or f.level ~= layout.LEVEL.GROUND then return end
+	local cs = result.cargoStation
+	local cfg = captureParams or {}
+	local w, h = f.w, f.h
+	local g = layout.rotaryGeometry(w, h)
+	local hx, hy = g.hx, g.hy
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	local align = cfg.terrain or "EQUAL"
+	local sidewalk = cfg.sidewalkGround or ROTARY_SIDEWALK
+
+	addBox(cs, transform, -hx, -hy, hx, g.kerbY, nil, align, cfg.ground or ROTARY_GROUND)
+	addBox(cs, transform, -hx, g.kerbY, hx, hy, nil, align, sidewalk)
+	local is = g.island
+	if is[3] > is[1] and is[4] > is[2] then
+		addBox(cs, transform, is[1], is[2], is[3], is[4], nil, align, cfg.islandGround or ROTARY_ISLAND)
+	end
+
+	for _, st in ipairs(g.stops) do
+		local cx = (st[1] + st[2]) / 2
+		for _, m in ipairs(cfg.stopModels or {}) do
+			local id, t = buildingModelTransf(m)
+			addModelTo(cs.models, id, transform, transf.mul(transf.transl(vec3.new(cx, g.kerbY, 0)), t), tag)
+		end
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		addModelTo(cs.models, id, transform, t, tag)
+	end
+
+	-- street stub: outer node snaps to a road; its two driving lanes meet the loop at x = +-2.5
+	J.streets = J.streets or {}
+	local tng = ldir(transform, 0, g.entryY + hy, 0)
+	table.insert(J.streets, {
+		type = "STREET",
+		params = {
+			type = cfg.streetTemplate or "::/infrastructure/street/constructions/entrance_new.street_template",
+			tramTrackType = "NO",
+		},
+		edges = { { lpt(transform, 0, -hy, 0), tng }, { lpt(transform, 0, g.entryY, 0), tng } },
+		snapNodes = { 0 },
+	})
+
+	-- bus loop
+	layout.addCurveLane(cs, g.inbound, BUS_LANE_WIDTH, BUS_MODES, { 0, 1, 0 }, { -1, 0, 0 }, transform)
+	layout.addCurveLane(cs, g.outbound, BUS_LANE_WIDTH, BUS_MODES, { -1, 0, 0 }, { 0, -1, 0 }, transform)
+
+	-- sidewalk along the stops: nodes at the stop ends, stop centres and the column connectors
+	local cols = {}
+	for s = f.seg, f.seg + w - 1 do cols[#cols + 1] = layout.forecourtColumnX(f.side, f.seg, w, s) end
+	local function walkPoints(x1, x0)
+		local xs = { x1, x0, (x1 + x0) / 2 }
+		for _, x in ipairs(cols) do if x < x1 - 0.01 and x > x0 + 0.01 then xs[#xs + 1] = x end end
+		table.sort(xs, function(a, b) return a > b end)
+		local pts, last = {}, nil
+		for _, x in ipairs(xs) do
+			if not last or math.abs(x - last) > 0.01 then pts[#pts + 1] = { x, g.walkY, 0 } end
+			last = x
+		end
+		return pts
+	end
+	J.busStops = J.busStops or {}
+	for _, st in ipairs(g.stops) do
+		local mid = (st[1] + st[2]) / 2
+		local vl = layout.addCurveLane(cs, { { st[1], g.stopY, 0 }, { mid, g.stopY, 0 }, { st[2], g.stopY, 0 } },
+			BUS_LANE_WIDTH, BUS_MODES, { -1, 0, 0 }, { -1, 0, 0 }, transform)
+		local pts = walkPoints(st[1], st[2])
+		local pl = layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+		local personEdges, personNodes = {}, {}
+		for e = 0, #pts - 2 do
+			personEdges[#personEdges + 1] = { pl, e }
+			personNodes[#personNodes + 1] = { pl, 2 * e }
+		end
+		personNodes[#personNodes + 1] = { pl, 2 * (#pts - 2) + 1 }
+		table.insert(J.busStops, {
+			personEdges = personEdges,
+			personNodes = personNodes,
+			vehicleNode = { vl, 2 },
+			vehicleEdges = { { vl, 0 }, { vl, 1 } },
+			length = st[1] - st[2],
+		})
+	end
+
+	-- sidewalk ends to the side edges, then along the side edges through the cell-centre rows
+	local C = layout.FORECOURT_CELL
+	for _, sx in ipairs({ 1, -1 }) do
+		local edge = { { sx * hx, g.walkY, 0 } }
+		for j = h - 1, 0, -1 do
+			local y = -hy + C / 2 + j * C
+			if y < g.walkY - 0.01 then edge[#edge + 1] = { sx * hx, y, 0 } end
+		end
+		edge[#edge + 1] = { sx * hx, -hy, 0 }
+		layout.addLane(cs, edge, LANE_WIDTH, true, transform)
+		local inner = { { sx * g.stopX, g.walkY, 0 } }
+		for _, x in ipairs(cols) do
+			if sx * x > g.stopX + 0.01 and sx * x < hx - 0.01 then inner[#inner + 1] = { x, g.walkY, 0 } end
+		end
+		inner[#inner + 1] = { sx * hx, g.walkY, 0 }
+		table.sort(inner, function(a, b) return sx * a[1] < sx * b[1] end)
+		layout.addLane(cs, inner, LANE_WIDTH, true, transform)
+	end
+
+	-- towards the station: every column to the module edge; in row 0 across the gap to the street lane
+	for s = f.seg, f.seg + w - 1 do
+		local x = layout.forecourtColumnX(f.side, f.seg, w, s)
+		layout.addLane(cs, { { x, g.walkY, 0 }, { x, hy, 0 } }, LANE_WIDTH, true, transform)
+		if f.d == 0 then
+			local gap = layout.forecourtGap(L, f.side, s)
+			if gap > 0.01 then
+				addBox(cs, transform, x - C / 2, hy, x + C / 2, hy + gap, nil, align, sidewalk)
+			end
+			layout.addLane(cs, { { x, hy, 0 }, { x, hy + gap + 3, 0 } }, LANE_WIDTH, false, transform)
+		end
+	end
+end
+
+local function getModelsBusRotary(captureParams, params)
+	local res = {}
+	local cfg = captureParams or {}
+	for _, list in ipairs({ cfg.stopModels or {}, cfg.models or {} }) do
+		for _, m in ipairs(list) do
+			local id, t = buildingModelTransf(m)
+			table.insert(res, { id = id, transf = t })
+		end
+	end
+	return res
+end
+
 -- Pedestrian deck (ペデストリアンデッキ) ------------------------------------------------
 -- Forecourt level 1: the same 40 m grid as the 1F plazas, floor at DZ (= 2F concourse height), so a deck
 -- can stand over a plaza. Functional part: walkway lanes on the deck, the link into the station (through
@@ -593,7 +758,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 				beam({ x, hy, DZ }, { x, yBack, DZ }, ww)
 			end
 			if L.concourses[s] then pts[#pts + 1] = { x, yFront, DZ } end
-			layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+			if #pts >= 2 then layout.addLane(cs, pts, LANE_WIDTH, false, transform) end
 			-- down into the building hall (same node as the building's hall lane)
 			layout.addLane(cs, { { x, yBack, DZ }, { x, yFront + BUILDING_HALL_Y, 0 } }, LANE_WIDTH, false, transform)
 		end
@@ -688,6 +853,10 @@ function data()
 		forecourt = {
 			updateFn = updateForecourt,
 			getModelsFn = getModelsForecourt,
+		},
+		busrotary = {
+			updateFn = updateBusRotary,
+			getModelsFn = getModelsBusRotary,
 		},
 		deck = {
 			updateFn = updateDeck,
