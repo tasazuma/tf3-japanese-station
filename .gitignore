@@ -1,0 +1,7 @@
+.DS_Store
+*.swp
+*~
+
+# offline test: vanilla scripts extracted by tools/test/setup.sh
+tools/test/.vanilla/
+__pycache__/

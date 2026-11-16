@@ -1,0 +1,20 @@
+{
+	"dependencies": [
+		{
+			"mod": { "modId": "jpst_station", "revisionMin": 1, "revisionMax": -1 },
+			"modInfo": { "displayName": "JP Modular Station" },
+			"loadBefore": true,
+			"optional": false
+		}
+	],
+	"incompatibilities": null,
+	"modId": "jpst_building_example",
+	"options": null,
+	"params": null,
+	"postRunScript": { "fileName": "" },
+	"preRunScript": { "fileName": "" },
+	"runScript": { "fileName": "" },
+	"revision": 1,
+	"severityAdd": "None",
+	"severityRemove": "Warning"
+}

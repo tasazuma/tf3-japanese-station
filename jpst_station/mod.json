@@ -1,0 +1,13 @@
+{
+	"dependencies": null,
+	"incompatibilities": null,
+	"modId": "jpst_station",
+	"options": null,
+	"params": null,
+	"postRunScript": { "fileName": "" },
+	"preRunScript": { "fileName": "" },
+	"runScript": { "fileName": "" },
+	"revision": 1,
+	"severityAdd": "None",
+	"severityRemove": "Warning"
+}

@@ -1,0 +1,8 @@
+{
+	"authors": [ { "name": "tasazuma", "role": "CREATOR" } ],
+	"description": "Example station building skin for JP Modular Station. Shows how another mod can add a building look: ship only a module file whose type is jpst_building (or jpst_building_2 .. _8) and whose updateScript points to jpst_station::/stations/jpst/jpst_modules.script@building.updateFn.",
+	"name": "JP Modular Station - Example Building Skin",
+	"summary": "Example building skin for JP Modular Station",
+	"tags": [ "Station", "Train Station" ],
+	"url": "https://github.com/tasazuma/tf3-japanese-station"
+}

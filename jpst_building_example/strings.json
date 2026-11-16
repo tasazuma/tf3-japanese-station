@@ -1,0 +1,10 @@
+{
+	"en": {
+		"JPSTX_BUILDING_WOOD_NAME": "Wooden station building (example skin)",
+		"JPSTX_BUILDING_WOOD_DESC": "Example skin from a separate mod: era B vanilla station building on the JP Modular Station building slot."
+	},
+	"ja": {
+		"JPSTX_BUILDING_WOOD_NAME": "木造駅舎（外観サンプル）",
+		"JPSTX_BUILDING_WOOD_DESC": "別modから追加した外観のサンプル。バニラのB時代駅舎をJPモジュール駅の駅舎スロットに置きます。"
+	}
+}

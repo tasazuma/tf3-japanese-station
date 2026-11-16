@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""Generate the jpst_station .module.lua files (tracks, platforms, building).
+
+Run from anywhere:  python3 tools/gen_modules.py
+Edit the tables below and re-run instead of editing the generated files by hand.
+"""
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent.parent / "jpst_station/content/stations/jpst"
+MOD = "jpst_station::/stations/jpst/"
+SCRIPT = MOD + "jpst_modules.script"
+ERA_C = "::/stations/rail/era_c/"
+ERA_A = "::/stations/rail/era_a/"
+SEG_LEN = 40
+MAX_BUILDING_SEGS = 8
+AUDIO = "::/gui/construction/sound/buildoze_module.builder_audio"
+
+HEADER = '''local vec3 = require "::/scripts/vec3.tl"
+local transf = require "::/scripts/mat4.tl"
+
+'''
+
+# level key -> (file infix, slot type suffix, string key infix, menu order offset)
+LEVELS = {
+    "ground": ("", "", "", 0),
+    "elevated": ("elevated_", "_elevated", "ELEVATED_", 100),
+}
+
+TRACK_TYPES = [("simple", 1, 40000), ("standard", 2, 60000), ("high_speed", 3, 90000)]
+
+PLATFORMS = [
+    # key, width, stairsX, models [(file, x)], end model, border model, price
+    ("5", 5, None, [("perron_5.mdl", 0)], "perron_5_end.mdl", "perron_5_border.mdl", 60000),
+    ("5_stairs", 5, 0, [("perron_5_underpass.mdl", 0)], "perron_5_end.mdl", "perron_5_border.mdl", 90000),
+    ("10", 10, None, [("perron_10.mdl", 0)], "perron_10_end.mdl", "perron_5_border.mdl", 100000),
+    ("10_stairs", 10, -2.5, [("perron_5_underpass.mdl", -2.5), ("perron_5.mdl", 2.5)], "perron_10_end.mdl",
+     "perron_5_border.mdl", 130000),
+]
+ELEVATED_PRICE_FACTOR = 2
+
+
+def lua_bool(b):
+    return "true" if b else "false"
+
+
+def lua_str_or_nil(s):
+    return f'"{s}"' if s else "nil"
+
+
+def track_file(t, cat, infix):
+    return f"jpst_track_{infix}{t}{'_catenary' if cat else ''}"
+
+
+def write(name, text):
+    (OUT / f"{name}.module.lua").write_text(text)
+
+
+def gen_tracks():
+    for level, (infix, slot_suffix, str_infix, order_off) in LEVELS.items():
+        factor = ELEVATED_PRICE_FACTOR if level == "elevated" else 1
+        for t, order, price in TRACK_TYPES:
+            price *= factor
+            for cat in (False, True):
+                other = MOD + track_file(t, not cat, infix) + ".module"
+                c = "_catenary" if cat else ""
+                tmpl = f"::/infrastructure/track/{t}/{t}{c}.street_template"
+                write(track_file(t, cat, infix), HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_tracks", order = {order_off + order * 10 + (1 if cat else 0)} }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_TRACK_{str_infix}{t.upper()}{c.upper()}_NAME"),
+			description = _("JPST_TRACK_{str_infix}DESC"),
+			icon = "::/infrastructure/track/{t}/{t}{c}.tga",
+			previewIcon = "::/infrastructure/track/{t}/{t}{c}_preview.tga",
+		}},
+		type = "jpst_track{slot_suffix}",
+		metadata = {{
+			track = true,
+			jpst_width = 5,
+			jpst_level = "{level}",
+			jpst_trackTemplate = "{tmpl}",
+			jpst_catenary = {lua_bool(cat)},
+			catenaryAdd = {lua_str_or_nil(None if cat else other)},
+			catenaryRemove = {lua_str_or_nil(other if cat else None)},
+			price = {price},
+			maintenanceCost = {price // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@track.updateFn",
+			params = {{
+				template = "{tmpl}",
+				catenary = {lua_bool(cat)},
+			}},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@track.getModelsFn",
+			params = {{}},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def gen_platforms():
+    for level, (infix, slot_suffix, str_infix, order_off) in LEVELS.items():
+        factor = ELEVATED_PRICE_FACTOR if level == "elevated" else 1
+        for i, (key, w, sx, models, end, border, price) in enumerate(PLATFORMS):
+            price *= factor
+            stairs = sx is not None
+            icon = "addon_platform_passenger_stairs_era_c" if stairs else "platform_passenger_era_c"
+            ms = "\n".join(f'\t\t{{ id = "{ERA_C}{m}", x = {x} }},' for m, x in models)
+            write(f"jpst_platform_{infix}island_{key}", HEADER + f'''local config = {{
+	width = {w},
+	stairsX = {"nil" if sx is None else sx},
+	models = {{
+{ms}
+	}},
+	endModel = "{ERA_C}{end}",
+	borderModel = "{ERA_C}{border}",
+}}
+
+function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = {order_off + 10 + i} }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_PLATFORM_{str_infix}{key.upper()}_NAME"),
+			description = _("JPST_PLATFORM_{str_infix}DESC"),
+			icon = "::/stations/rail/modular_station/{icon}.tga",
+			previewIcon = "::/stations/rail/modular_station/{icon}_preview.tga",
+		}},
+		type = "jpst_platform{slot_suffix}",
+		metadata = {{
+			platform = true,
+			passenger_platform = true,
+			jpst_width = {w},
+			jpst_level = "{level}",
+			jpst_stairs = {lua_bool(stairs)},
+			price = {price},
+			maintenanceCost = {price // 6},
+			emissionConfig = {{ noise = 1, pollution = 5 }},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@platform.updateFn",
+			params = config,
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@platform.getModelsFn",
+			params = config,
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def building_slot_type(size):
+    return "jpst_building" if size <= 1 else f"jpst_building_{size}"
+
+
+def gen_building():
+    write("jpst_building_small", HEADER + f'''local config = {{
+	length = 22,
+	depth = 17,
+	height = 8,
+	models = {{
+		"{ERA_C}station_1_main.mdl",
+		"{ERA_C}station_1_main_end_lft.mdl",
+		"{ERA_C}station_1_main_end_rgt.mdl",
+	}},
+}}
+
+function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_building", filterCategories = {{ "passenger" }}, order = 10 }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_BUILDING_SMALL_NAME"),
+			description = _("JPST_BUILDING_SMALL_DESC"),
+			icon = "::/stations/rail/modular_station/main_building_1_era_c.tga",
+			previewIcon = "::/stations/rail/modular_station/main_building_1_era_c_preview@2x.tga",
+			attributes = {{
+				cost = {{ 18000, -1 }},
+				maintenanceCost = {{ 3000, -1 }},
+			}},
+		}},
+		type = "jpst_building",
+		metadata = {{
+			moreCapacity = {{ passenger = 30 }},
+			emissionConfig = {{ noise = 1, pollution = 2 }},
+			catchmentPassenger = {{ radius = 150 }},
+			comfortFactor = 0.1,
+			price = 18000,
+			maintenanceCost = 3000,
+			-- street snaps behind the building, running along local X
+			snapPoint = transf.transl(vec3.new(0, -24, 0)),
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@building.updateFn",
+			params = config,
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@building.getModelsFn",
+			params = config,
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def brick_models(k):
+    """Vanilla era_a brick station: main hall in the middle block, wings elsewhere (one block = 40 m)."""
+    mi = (k - 1) // 2
+    out = []
+    for b in range(k):
+        x = (b - (k - 1) / 2) * SEG_LEN
+        main = b == mi
+        out.append(("station_3_main" if main else "station_3", x))
+        for side, nb in (("lft", b - 1), ("rgt", b + 1)):
+            if not 0 <= nb < k:
+                piece = "station_3_main_end" if main else "station_3_end"
+            elif main:
+                piece = "station_3_main_end"  # vanilla: main hall next to a wing keeps its end piece
+            elif nb == mi:
+                piece = "station_3_con_2"
+            else:
+                piece = "station_3_con_3"
+            out.append((f"{piece}_{side}", x))
+    return out
+
+
+def gen_brick_buildings():
+    for k in range(1, MAX_BUILDING_SEGS + 1):
+        models = "\n".join(
+            f'\t\t{{ id = "{ERA_A}{m}.mdl", x = {x:g} }},' for m, x in brick_models(k))
+        price = 60000 * k
+        write(f"jpst_building_brick_{k}", HEADER + f'''-- generated by tools/gen_modules.py: red brick station building over {k} segment(s) ({k * SEG_LEN} m)
+local config = {{
+	length = {k * SEG_LEN},
+	depth = 40,
+	height = 16,
+	models = {{
+{models}
+	}},
+}}
+
+function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_building", filterCategories = {{ "passenger" }}, order = {100 + k} }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_BUILDING_BRICK_{k}_NAME"),
+			description = _("JPST_BUILDING_BRICK_DESC"),
+			icon = "::/stations/rail/modular_station/main_building_3_era_a.tga",
+			previewIcon = "::/stations/rail/modular_station/main_building_3_era_a_preview@2x.tga",
+			attributes = {{
+				cost = {{ {price}, -1 }},
+				maintenanceCost = {{ {10000 * k}, -1 }},
+			}},
+		}},
+		type = "{building_slot_type(k)}",
+		metadata = {{
+			moreCapacity = {{ passenger = {100 * k} }},
+			emissionConfig = {{ noise = 1, pollution = {5 * k} }},
+			catchmentPassenger = {{ radius = 250 }},
+			comfortFactor = 0.2,
+			price = {price},
+			maintenanceCost = {10000 * k},
+			snapPoint = transf.transl(vec3.new(0, -47, 0)),
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@building.updateFn",
+			params = config,
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@building.getModelsFn",
+			params = config,
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def gen_concourse():
+    write("jpst_concourse", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_building", filterCategories = {{ "passenger" }}, order = 20 }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_CONCOURSE_NAME"),
+			description = _("JPST_CONCOURSE_DESC"),
+			icon = "::/stations/rail/modular_station/stairs.tga",
+			previewIcon = "::/stations/rail/modular_station/stairs_preview@2x.tga",
+			attributes = {{
+				cost = {{ 150000, -1 }},
+				maintenanceCost = {{ 15000, -1 }},
+			}},
+		}},
+		type = "jpst_concourse",
+		metadata = {{
+			jpst_concourse = true,
+			moreCapacity = {{ passenger = 50 }},
+			emissionConfig = {{ noise = 1, pollution = 2 }},
+			catchmentPassenger = {{ radius = 200 }},
+			comfortFactor = 0.1,
+			price = 150000,
+			maintenanceCost = 15000,
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@concourse.updateFn",
+			params = {{}},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@concourse.getModelsFn",
+			params = {{}},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+if __name__ == "__main__":
+    gen_tracks()
+    gen_platforms()
+    gen_building()
+    gen_brick_buildings()
+    gen_concourse()
+    print("generated into", OUT)

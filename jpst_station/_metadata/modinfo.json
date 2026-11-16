@@ -1,0 +1,8 @@
+{
+	"authors": [ { "name": "tasazuma", "role": "CREATOR" } ],
+	"description": "Japanese-style modular passenger station (work in progress). Uses vanilla models. v4: ground and elevated platforms, island/side layouts, bridge-over concourse with free passage, long station buildings (1-8 segments) whose look can come from other mods.",
+	"name": "JP Modular Station",
+	"summary": "Japanese-style modular train station (WIP)",
+	"tags": [ "Station", "Train Station", "Script Mod" ],
+	"url": "https://github.com/tasazuma/tf3-japanese-station"
+}
