@@ -1472,3 +1472,30 @@ do
 		print((nBeam == 12 and nStrut == 12 and bad == 0 and "" or "FAIL ") .. "roof arms level " .. lvl, nBeam, nStrut, bad)
 	end
 end
+
+-- 22) cover roof: a high roof over the neighbouring tracks, shared between facing platforms
+print("== roof cover ==")
+do
+	local COVER = layout.moduleName("jpst_roof_era_c_cover")
+	for _, case in ipairs({ { layoutIdx = 1, pieces = 2, name = "island" }, { layoutIdx = 2, pieces = 2, name = "sides" },
+			{ layoutIdx = 2, pieces = 1, name = "sides, only one is a cover", mixed = true } }) do
+		local mods = script.createTemplateFn({}, { jpst_length = 1, jpst_tracks = 2, jpst_platformLayout = case.layoutIdx, jpst_level = 1, jpst_roof = 3, jpst_building = 3 })
+		local first = true
+		for id, name in pairs(mods) do if (layout.decode(id)) == K.ROOF then
+			if not (case.mixed and not first) then mods[id] = COVER end
+			first = false
+		end end
+		local r = build({ modulesByName = mods })
+		local n, bad, maxX = 0, 0, 0
+		for _, md in ipairs(r.cargoStation.models) do
+			local t = md.transf
+			if md.id:find("perron_5_roof.mdl", 1, true) and t[15] > 0.5 then
+				n = n + 1
+				maxX = math.max(maxX, math.abs(t[13]))
+				local det = t[1] * (t[6] * t[11] - t[7] * t[10]) - t[5] * (t[2] * t[11] - t[3] * t[10]) + t[9] * (t[2] * t[7] - t[3] * t[6])
+				if det <= 0 then bad = bad + 1 end
+			end
+		end
+		print((n == case.pieces and bad == 0 and "" or "FAIL ") .. "roof cover " .. case.name, n, bad, maxX)
+	end
+end

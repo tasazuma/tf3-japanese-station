@@ -252,6 +252,7 @@ end
 -- An end piece closes the roof where the next segment of the same platform has no roof.
 -- params: roofModel, endModel (optional), arms (optional):
 --   arms = { models = {{id, transf}, ...}, ys = {...}, z, section = {width, height}, strut = {width, z0} }
+-- cover (optional): see addRoofCover.
 -- An arm is a beam from the roof edge over the neighbouring track, so the overhead wire hangs from the roof
 -- instead of from poles. `models` is one beam of unit size (x 0..1, y +-0.5, z -1..0); it is stretched to the
 -- reach and the section. `z` is the top of the beam above the rail (the wire hangs at about 6.4 m).
@@ -292,6 +293,48 @@ local function addRoofArms(cs, T, z, tag, L, row, seg, level, arms)
 	end
 end
 
+-- Cover: the roof also spans the neighbouring tracks (Shinkansen style). The roof piece is stretched sideways and
+-- lifted so it clears the trains and the wire. Between two roofed platforms each one covers its half of the
+-- tracks (when the facing roof is not a cover roof as well, this one covers all of the tracks); towards the outside it reaches the far edge of the last track and gets columns there.
+-- cover = { z = height of the roof underside above the rail, ys = column positions, column = width }
+local function addRoofCover(cs, T, z, tag, L, row, seg, level, cfg)
+	local cover = cfg.cover
+	local w = layout.width(L, row)
+	local c0 = layout.centre(L, row)
+	for _, side in ipairs({ -1, 1 }) do
+		local rr = row + side
+		local last
+		while true do
+			local c = layout.get(L, rr, seg)
+			if not (c and c.kind == layout.KIND.TRACK and c.level == level) then break end
+			last = rr
+			rr = rr + side
+		end
+		if last then
+			local far = side * (layout.centre(L, last) - c0) + layout.width(L, last) / 2
+			local shared = L.roofCover[rr] ~= nil and L.roofCover[rr][seg] == true
+			local x1 = shared and (w / 2 + far) / 2 or far
+			local x0 = w / 2 - 0.3
+			local lz = cover.z - 4.25
+			local k = (x1 - x0) / 5.28
+			local mid = side * (x0 + x1) / 2
+			local M = { 0, 1, 0, 0, -k, 0, 0, 0, 0, 0, 1, 0, mid, -20, z + lz, 1 }
+			addModelTo(cs.models, cfg.roofModel, T, M, tag)
+			if not shared then
+				local cw = cover.column or 0.4
+				for _, y in ipairs(cover.ys or { -10, 10 }) do
+					local B = { side, 0, 0, 0, 0, side, 0, 0, 0, 0, 1, 0, 0, y, z, 1 }
+					addColumn(cs, mul16(T, B), x1 - cw, x1, -cw / 2, cw / 2, 0, cover.z, tag)
+				end
+			end
+			for _, y in ipairs(cover.ys or { -10, 10 }) do
+				local Bc = { side, 0, 0, 0, 0, side, 0, 0, 0, 0, 1, 0, 0, y, z, 1 }
+				addColumn(cs, mul16(T, Bc), w / 2 - 0.3 - 0.3, w / 2 - 0.3, -0.15, 0.15, 5.3, cover.z, tag)
+			end
+		end
+	end
+end
+
 local function updateRoof(captureParams, result, transform, tag, slotId, addModel, constrParams)
 	local L = result.jpst.layout
 	if L.ignored[slotId] then return end
@@ -303,6 +346,7 @@ local function updateRoof(captureParams, result, transform, tag, slotId, addMode
 	local closeMinus = cfg.endModel and not layout.hasRoof(L, row, seg - 1)
 	local closePlus = cfg.endModel and not layout.hasRoof(L, row, seg + 1)
 	if cfg.arms then addRoofArms(cs, T, z, tag, L, row, seg, level, cfg.arms) end
+	if cfg.cover then addRoofCover(cs, T, z, tag, L, row, seg, level, cfg) end
 	for _, x in ipairs(roofXs(layout.width(L, row))) do
 		if cfg.roofModel then
 			addModelTo(cs.models, cfg.roofModel, T, lift(perronTransf(x), z), tag)

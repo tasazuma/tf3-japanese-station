@@ -153,6 +153,7 @@ function layout.compute(modules)
 		buildingAt = { [0] = {}, [1] = {} }, -- buildingAt[side][seg] = slotId of the building covering it
 		concourses = {}, -- [seg] = slotId (one per segment)
 		underViaducts = {}, -- [seg] = slotId of the 高架下駅舎 (one per segment, needs an elevated row)
+		roofCover = {},  -- roofCover[row][seg] = true when that roof spans the neighbouring tracks (metadata.jpst_roof_cover)
 		roofs = {},      -- roofs[row][seg] = slotId of the platform roof (needs a platform on the same level)
 		forecourts = {}, -- [slotId] = { module, level, side, d, w, h, seg } (level 0 = 1F plaza, 1 = deck)
 		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
@@ -209,6 +210,10 @@ function layout.compute(modules)
 			if c and c.kind == layout.KIND.PLATFORM and c.level == level then
 				L.roofs[row] = L.roofs[row] or {}
 				L.roofs[row][seg] = id
+				if m.metadata and m.metadata.jpst_roof_cover then
+					L.roofCover[row] = L.roofCover[row] or {}
+					L.roofCover[row][seg] = true
+				end
 			else
 				L.ignored[id] = true
 			end

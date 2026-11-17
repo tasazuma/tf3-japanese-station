@@ -788,11 +788,18 @@ ROOF_ARMS = f'''{{
 			}}'''
 
 # (name suffix, vanilla era, price, extra params, menu order)
+ROOF_COVER = """{
+				z = 9.0,
+				ys = { -10, 10 },
+				column = 0.5,
+			}"""
+
 ROOF_SKINS = [
     ("era_a", "a", 20000, "", 150),
     ("era_b", "b", 25000, "", 151),
     ("era_c", "c", 30000, "", 152),
     ("era_c_arm", "c", 40000, f"arms = {ROOF_ARMS},", 153),
+    ("era_c_cover", "c", 60000, f"cover = {ROOF_COVER},", 154),
 ]
 
 
@@ -804,7 +811,9 @@ def gen_roofs():
 				endModel = "{base}perron_5_roof_end.mdl",
 				{extra}
 			}}'''
-        key = "ERA_C_ARM" if extra else era.upper()
+        key = name.upper() if extra else era.upper()
+        cover_meta = "\t\t\tjpst_roof_cover = true,\n" if "cover" in extra else ""
+        desc = "COVER_" if "cover" in extra else ("ARM_" if extra else "")
         write(f"jpst_roof_{name}", HEADER + f'''function data()
 	return {{
 		availability = {{ yearFrom = 0, yearTo = 0 }},
@@ -815,7 +824,7 @@ def gen_roofs():
 		}},
 		description = {{
 			name = _("JPST_ROOF_{key}_NAME"),
-			description = _("JPST_ROOF_{'ARM_' if extra else ''}DESC"),
+			description = _("JPST_ROOF_{desc}DESC"),
 			icon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}.tga",
 			previewIcon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}_preview@2x.tga",
 			attributes = {{
@@ -826,7 +835,7 @@ def gen_roofs():
 		type = "jpst_roof",
 		metadata = {{
 			jpst_roof = true,
-			price = {price},
+{cover_meta}			price = {price},
 			maintenanceCost = {price // 10},
 		}},
 		updateScript = {{
