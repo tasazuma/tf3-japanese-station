@@ -299,21 +299,48 @@ function layout.compute(modules)
 	local fids = {}
 	for id in pairs(L.forecourts) do fids[#fids + 1] = id end
 	table.sort(fids)
+	local function accept(id, side, d, w, h, seg, level)
+		local f = L.forecourts[id]
+		f.side, f.d, f.w, f.h, f.seg = side, d, w, h, seg
+		local grid = layout.forecourtGrid(L, level)
+		for dd = d, d + h - 1 do
+			for s = seg, seg + w - 1 do grid[side][dd][s] = id end
+		end
+	end
+	-- Bus bays may also continue past the buildings: next to a building column or another bay (chained,
+	-- so they are retried until nothing new fits).
+	local pending = {}
 	for _, id in ipairs(fids) do
 		local _, level, row, seg = layout.decode(id)
 		local side, d, w, h = layout.forecourtDecodeRow(row)
-		local ok = layout.forecourtFits(L, side, d, w, h, seg, nil, level)
-		if ok then
-			local f = L.forecourts[id]
-			f.side, f.d, f.w, f.h, f.seg = side, d, w, h, seg
-			local grid = layout.forecourtGrid(L, level)
-			for dd = d, d + h - 1 do
-				for s = seg, seg + w - 1 do grid[side][dd][s] = id end
-			end
+		if layout.forecourtFits(L, side, d, w, h, seg, nil, level) then
+			accept(id, side, d, w, h, seg, level)
+		elseif layout.isBayModule(L.forecourts[id].module) then
+			pending[#pending + 1] = id
 		else
 			L.forecourts[id] = nil
 			L.ignored[id] = true
 		end
+	end
+	local progress = true
+	while progress and #pending > 0 do
+		progress = false
+		local rest = {}
+		for _, id in ipairs(pending) do
+			local _, level, row, seg = layout.decode(id)
+			local side, d, w, h = layout.forecourtDecodeRow(row)
+			if layout.forecourtFits(L, side, d, w, h, seg, nil, level, true) then
+				accept(id, side, d, w, h, seg, level)
+				progress = true
+			else
+				rest[#rest + 1] = id
+			end
+		end
+		pending = rest
+	end
+	for _, id in ipairs(pending) do
+		L.forecourts[id] = nil
+		L.ignored[id] = true
 	end
 	return L
 end
@@ -325,20 +352,39 @@ function layout.forecourtGrid(L, level)
 	return (level == layout.LEVEL.ELEVATED) and L.deckAt or L.forecourtAt
 end
 
-function layout.forecourtFits(L, side, d, w, h, seg, selfId, level)
+function layout.isBayModule(m)
+	return type(m) == "table" and m.metadata ~= nil and m.metadata.jpst_bus_bay == true
+end
+
+-- Column that a bus bay may continue from: a building column or a column held by a placed bay.
+local function bayAnchor(L, side, s, selfId)
+	if L.buildingAt[side][s] then return true end
+	local occ = L.forecourtAt[side][0] and L.forecourtAt[side][0][s]
+	return occ ~= nil and occ ~= selfId and L.forecourts[occ] ~= nil and layout.isBayModule(L.forecourts[occ].module)
+end
+
+-- `ext`: bus bay in the first cell row, 1F only; the columns need no building as long as one of them has
+-- one or the column next to the module is a bay anchor.
+function layout.forecourtFits(L, side, d, w, h, seg, selfId, level, ext)
 	if side > layout.SIDE.PLUS_X or w < 1 or w > layout.MAX_FORECOURT_W or h < 1 or d < 0
 		or d + h > layout.FORECOURT_ROWS then
 		return false
 	end
+	if ext and (d ~= 0 or h ~= 1 or level == layout.LEVEL.ELEVATED or not L.forecourtBase[side]) then return false end
 	local grid = layout.forecourtGrid(L, level)
+	local anchored = false
 	for s = seg, seg + w - 1 do
-		if not L.buildingAt[side][s] then return false end
+		if L.buildingAt[side][s] then anchored = true
+		elseif not ext then return false end
 		for dd = d, d + h - 1 do
 			local occ = grid[side][dd] and grid[side][dd][s]
 			if occ and occ ~= selfId then return false end
 		end
 	end
-	return true
+	if ext and not anchored then
+		anchored = bayAnchor(L, side, seg - 1, selfId) or bayAnchor(L, side, seg + w, selfId)
+	end
+	return not ext or anchored
 end
 
 function layout.get(L, row, seg)

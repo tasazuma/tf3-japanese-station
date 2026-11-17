@@ -132,7 +132,9 @@ local function createTemplateFn(captureParams, params)
 end
 
 local function addSlots(result, L, modules)
+	local addedSlots = {}
 	local function addSlot(id, tf, slotType, spacing)
+		addedSlots[id] = true
 		table.insert(result.slots, {
 			id = id,
 			transf = tf,
@@ -219,6 +221,24 @@ local function addSlots(result, L, modules)
 								addSlot(id, tf, layout.forecourtSlotType(w, h, level), { hx, hx, hy, hy })
 							end
 						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Bus bay continuation slots (1F, first row) beyond the buildings; non-bay modules there are ignored.
+	for _, side in ipairs({ layout.SIDE.MINUS_X, layout.SIDE.PLUS_X }) do
+		if L.forecourtBase[side] then
+			local lo, hi = math.huge, -math.huge
+			for s in pairs(L.buildingAt[side]) do lo, hi = math.min(lo, s), math.max(hi, s) end
+			for s in pairs(L.forecourtAt[side][0]) do lo, hi = math.min(lo, s), math.max(hi, s) end
+			for seg = lo - layout.MAX_FORECOURT_W, hi + 1 do
+				for w = 1, layout.MAX_FORECOURT_W do
+					local id = layout.encode(KIND.FORECOURT, GROUND, layout.forecourtRow(side, 0, w, 1), seg)
+					if not addedSlots[id] and layout.forecourtFits(L, side, 0, w, 1, seg, id, GROUND, true) then
+						local hx, hy = w * C / 2 - 0.5, C / 2 - 0.5
+						addSlot(id, layout.forecourtTransf(L, side, seg, 0, w, 1), layout.forecourtSlotType(w, 1, GROUND), { hx, hx, hy, hy })
 					end
 				end
 			end

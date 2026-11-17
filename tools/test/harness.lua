@@ -1499,3 +1499,61 @@ do
 		print((n == case.pieces and bad == 0 and "" or "FAIL ") .. "roof cover " .. case.name, n, bad, maxX)
 	end
 end
+
+-- 23) parallel bus bay: one-way lane along the station side, a stub at each end
+print("== bus bay ==")
+for lvl = 1, 2 do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = lvl })
+	local L0 = build({ modulesByName = m }).jpst.layout
+	local s0 = math.huge for s in pairs(L0.buildingAt[MINUS]) do s0 = math.min(s0, s) end
+	m[fcid(MINUS, 0, 2, 1, s0)] = layout.moduleName("jpst_busbay_basic_2x1")
+	local r = build({ modulesByName = m })
+	local cs = r.cargoStation
+	local compAt, compOfLane = components(r)
+	local fail, bus, stubs = {}, 0, 0
+	local trainTerm = compOfLane(cs.station.terminals[1].personEdges[1][1] + 1)
+	for _, t in ipairs(cs.station.terminals) do
+		if t.transportModes[1] == "BUS" then
+			bus = bus + 1
+			if compOfLane(t.personEdges[1][1] + 1) ~= trainTerm then fail[#fail + 1] = "stop not reachable" end
+		end
+	end
+	for _, el in ipairs(r.edgeLists) do if el.type == "STREET" then stubs = stubs + 1 end end
+	local f
+	for _, ff in pairs(r.jpst.layout.forecourts) do f = ff end
+	local tf = layout.forecourtTransf(r.jpst.layout, f.side, f.seg, f.d, f.w, f.h)
+	local a = compAt(wpt(tf, 40 - 8, 10, 0))
+	local b = compAt(wpt(tf, -(40 - 8), 10, 0))
+	if not a or a ~= b then fail[#fail + 1] = "bus lane not continuous" end
+	if bus ~= 2 or stubs ~= 2 then fail[#fail + 1] = ("bus %d stubs %d"):format(bus, stubs) end
+	print((#fail > 0 and "FAIL " or "") .. "bus bay lvl " .. lvl, bus, stubs, table.concat(fail, ", "))
+end
+-- bay continuation beyond the buildings
+do
+	local m = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2, jpst_level = 1 })
+	local L0 = build({ modulesByName = m }).jpst.layout
+	local lo, hi = math.huge, -math.huge
+	for s in pairs(L0.buildingAt[MINUS]) do lo, hi = math.min(lo, s), math.max(hi, s) end
+	local BAY = layout.moduleName("jpst_busbay_basic_1x1")
+	m[fcid(MINUS, 0, 1, 1, hi)] = BAY
+	m[fcid(MINUS, 0, 1, 1, hi + 1)] = BAY
+	m[fcid(MINUS, 0, 1, 1, hi + 2)] = BAY
+	m[fcid(MINUS, 0, 1, 1, hi + 4)] = BAY -- gap: ignored
+	m[fcid(MINUS, 0, 1, 1, lo - 1)] = PAVED(1, 1) -- not a bay: ignored
+	local r = build({ modulesByName = m })
+	local cs = r.cargoStation
+	local compAt, compOfLane = components(r)
+	local bus, stubs, fail = 0, 0, {}
+	local trainTerm = compOfLane(cs.station.terminals[1].personEdges[1][1] + 1)
+	for _, t in ipairs(cs.station.terminals) do
+		if t.transportModes[1] == "BUS" then
+			bus = bus + 1
+			if compOfLane(t.personEdges[1][1] + 1) ~= trainTerm then fail[#fail + 1] = "stop not reachable" end
+		end
+	end
+	for _, el in ipairs(r.edgeLists) do if el.type == "STREET" then stubs = stubs + 1 end end
+	if bus ~= 3 or stubs ~= 4 or nIgnored(r) ~= 2 then fail[#fail + 1] = ("bus %d stubs %d ignored %d"):format(bus, stubs, nIgnored(r)) end
+	local has = false
+	for _, sl in ipairs(r.slots or {}) do if sl.id == fcid(MINUS, 0, 1, 1, hi + 3) then has = true end end
+	print((#fail > 0 and "FAIL " or "") .. "bay continuation", bus, stubs, table.concat(fail, ", "))
+end

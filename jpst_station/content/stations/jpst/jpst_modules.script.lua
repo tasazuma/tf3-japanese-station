@@ -924,6 +924,149 @@ local function getModelsBusRotary(captureParams, params)
 	return res
 end
 
+-- Parallel bus bay (並行バス乗り場) -------------------------------------------------------
+-- A 1F forecourt module like the rotary, but a one-way bus lane running straight along the station side:
+-- buses enter from a street stub at the +X end, stop at one bus stop per cell column and leave through a
+-- stub at the -X end (the road snaps at both outer edges). Same frame, params and sidewalk links as the
+-- rotary (stopModels are relative to (terminal centre x, kerb y), buses head towards -X).
+
+local BAY_STUB = 8
+
+local function updateBusBay(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local J = result.jpst
+	local L = J.layout
+	local f = L.forecourts[slotId]
+	if L.ignored[slotId] or not f or f.level ~= layout.LEVEL.GROUND then return end
+	local cs = result.cargoStation
+	local cfg = captureParams or {}
+	local R = layout.ROTARY
+	local C = layout.FORECOURT_CELL
+	local w, h = f.w, f.h
+	local hx, hy = w * C / 2, h * C / 2
+	local kerbY, stopY, walkY = hy - R.SIDEWALK, hy - R.STOP, hy - R.WALK
+	local roadY = stopY - 2.5
+	local stopX = hx - BAY_STUB
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	local align = cfg.terrain or "EQUAL"
+
+	addBox(cs, transform, -hx, roadY - 3.5, hx, kerbY, nil, align, cfg.ground or ROTARY_GROUND)
+	addBox(cs, transform, -hx, kerbY, hx, hy, nil, align, cfg.sidewalkGround or ROTARY_SIDEWALK)
+
+	-- bus lane stops: cell column boundaries clipped to the straight, from +X to -X
+	local stops = {}
+	for i = w - 1, 0, -1 do
+		local x1 = math.min(-hx + (i + 1) * C, stopX)
+		local x0 = math.max(-hx + i * C, -stopX)
+		if x1 - x0 > 1 then stops[#stops + 1] = { x1, x0 } end
+	end
+	for _, st in ipairs(stops) do
+		for _, m in ipairs(cfg.stopModels or {}) do
+			local id, t = buildingModelTransf(m)
+			addModelTo(cs.models, id, transform,
+				transf.mul(transf.transl(vec3.new((st[1] + st[2]) / 2, kerbY, 0)), t), tag)
+		end
+	end
+	for _, m in ipairs(cfg.models or {}) do
+		local id, t = buildingModelTransf(m)
+		addModelTo(cs.models, id, transform, t, tag)
+	end
+
+	-- street stubs at both ends, heading -X; the bus lane meets their right-hand driving lane
+	J.streets = J.streets or {}
+	local tng = ldir(transform, -BAY_STUB, 0, 0)
+	local template = cfg.streetTemplate or "::/infrastructure/street/constructions/entrance_new.street_template"
+	-- A neighbouring bay in the same row shares the joint: the +X side of the pair emits one street across it.
+	local plus = f.side == layout.SIDE.PLUS_X
+	local function neighbour(east)
+		local c
+		if east == plus then c = f.seg + w else c = f.seg - 1 end
+		local occ = L.forecourtAt[f.side][0] and L.forecourtAt[f.side][0][c]
+		return occ ~= nil and occ ~= slotId and layout.isBayModule(L.forecourts[occ] and L.forecourts[occ].module)
+	end
+	local params = { type = template, tramTrackType = "NO" }
+	if neighbour(true) then
+		table.insert(J.streets, {
+			type = "STREET", params = params,
+			edges = { { lpt(transform, stopX, roadY, 0), tng }, { lpt(transform, hx + BAY_STUB, roadY, 0), tng } },
+			snapNodes = {},
+		})
+	else
+		table.insert(J.streets, {
+			type = "STREET", params = params,
+			edges = { { lpt(transform, hx, roadY, 0), tng }, { lpt(transform, stopX, roadY, 0), tng } },
+			snapNodes = { 0 },
+		})
+	end
+	if not neighbour(false) then
+		table.insert(J.streets, {
+			type = "STREET", params = params,
+			edges = { { lpt(transform, -stopX, roadY, 0), tng }, { lpt(transform, -hx, roadY, 0), tng } },
+			snapNodes = { 1 },
+		})
+	end
+
+	local cols = {}
+	for s = f.seg, f.seg + w - 1 do cols[#cols + 1] = layout.forecourtColumnX(f.side, f.seg, w, s) end
+	local function walkPoints(x1, x0)
+		local xs = { x1, x0, (x1 + x0) / 2 }
+		for _, x in ipairs(cols) do if x < x1 - 0.01 and x > x0 + 0.01 then xs[#xs + 1] = x end end
+		table.sort(xs, function(a, b) return a > b end)
+		local pts, last = {}, nil
+		for _, x in ipairs(xs) do
+			if not last or math.abs(x - last) > 0.01 then pts[#pts + 1] = { x, walkY, 0 } end
+			last = x
+		end
+		return pts
+	end
+	J.busStops = J.busStops or {}
+	for _, st in ipairs(stops) do
+		local mid = (st[1] + st[2]) / 2
+		local vl = layout.addCurveLane(cs, { { st[1], stopY, 0 }, { mid, stopY, 0 }, { st[2], stopY, 0 } },
+			BUS_LANE_WIDTH, BUS_MODES, { -1, 0, 0 }, { -1, 0, 0 }, transform)
+		local pts = walkPoints(st[1], st[2])
+		local pl = layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+		local personEdges, personNodes = {}, {}
+		for e = 0, #pts - 2 do
+			personEdges[#personEdges + 1] = { pl, e }
+			personNodes[#personNodes + 1] = { pl, 2 * e }
+		end
+		personNodes[#personNodes + 1] = { pl, 2 * (#pts - 2) + 1 }
+		table.insert(J.busStops, {
+			personEdges = personEdges,
+			personNodes = personNodes,
+			vehicleNode = { vl, 2 },
+			vehicleEdges = { { vl, 0 }, { vl, 1 } },
+			length = st[1] - st[2],
+		})
+	end
+
+	-- sidewalk from the stop ends to the side edges and along the side edges, as in the rotary
+	for _, sx in ipairs({ 1, -1 }) do
+		layout.addLane(cs, { { sx * stopX, walkY, 0 }, { sx * hx, walkY, 0 } }, LANE_WIDTH, true, transform)
+		local edge = { { sx * hx, walkY, 0 } }
+		for j = h - 1, 0, -1 do
+			local y = -hy + C / 2 + j * C
+			if y < walkY - 0.01 then edge[#edge + 1] = { sx * hx, y, 0 } end
+		end
+		edge[#edge + 1] = { sx * hx, -hy, 0 }
+		layout.addLane(cs, edge, LANE_WIDTH, true, transform)
+	end
+
+	for s = f.seg, f.seg + w - 1 do
+		local x = layout.forecourtColumnX(f.side, f.seg, w, s)
+		layout.addLane(cs, { { x, walkY, 0 }, { x, hy, 0 } }, LANE_WIDTH, true, transform)
+		if f.d == 0 then
+			if L.buildingAt[f.side][s] then
+				local gap = layout.forecourtGap(L, f.side, s)
+				if gap > 0.01 then
+					addBox(cs, transform, x - C / 2, hy, x + C / 2, hy + gap, nil, align, cfg.sidewalkGround or ROTARY_SIDEWALK)
+				end
+				layout.addLane(cs, { { x, hy, 0 }, { x, hy + gap + 3, 0 } }, LANE_WIDTH, false, transform)
+			end
+		end
+	end
+end
+
 -- Pedestrian deck (ペデストリアンデッキ) ------------------------------------------------
 -- Forecourt level 1: the same 40 m grid as the 1F plazas, floor at DZ (= 2F concourse height), so a deck
 -- can stand over a plaza. Functional part: walkway lanes on the deck, the link into the station (through
@@ -1126,6 +1269,10 @@ function data()
 		},
 		busrotary = {
 			updateFn = updateBusRotary,
+			getModelsFn = getModelsBusRotary,
+		},
+		busbay = {
+			updateFn = updateBusBay,
 			getModelsFn = getModelsBusRotary,
 		},
 		deck = {
