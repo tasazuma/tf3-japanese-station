@@ -776,25 +776,46 @@ ROOF_ERAS = [
 ]
 
 
+ROOF_ARMS = f'''{{
+				z = 7.0,
+				section = {{ 0.3, 0.5 }},
+				strut = {{ width = 0.3, z0 = 5.3 }},
+				ys = {{ -20, 0, 20 }},
+				models = {{
+					{{ id = "{UNDER_PILLAR}", transf = {{ 0, -1 / 2.112, 0, 0, 1 / 3, 0, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -1, 1 }} }},
+					{{ id = "{UNDER_PILLAR}", transf = {{ 0, 0, 1 / 2.112, 0, 1 / 3, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -0.5, -0.5, 1 }} }},
+				}},
+			}}'''
+
+# (name suffix, vanilla era, price, extra params, menu order)
+ROOF_SKINS = [
+    ("era_a", "a", 20000, "", 150),
+    ("era_b", "b", 25000, "", 151),
+    ("era_c", "c", 30000, "", 152),
+    ("era_c_arm", "c", 40000, f"arms = {ROOF_ARMS},", 153),
+]
+
+
 def gen_roofs():
-    for i, (era, price) in enumerate(ROOF_ERAS):
+    for name, era, price, extra, order in ROOF_SKINS:
         base = f"::/stations/rail/era_{era}/"
         params = f'''{{
 				roofModel = "{base}perron_5_roof.mdl",
 				endModel = "{base}perron_5_roof_end.mdl",
+				{extra}
 			}}'''
-        key = era.upper()
-        write(f"jpst_roof_era_{era}", HEADER + f'''function data()
+        key = "ERA_C_ARM" if extra else era.upper()
+        write(f"jpst_roof_{name}", HEADER + f'''function data()
 	return {{
 		availability = {{ yearFrom = 0, yearTo = 0 }},
 		menuCategory = {{
 			categories = {{
-				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = {150 + i} }},
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = {order} }},
 			}},
 		}},
 		description = {{
 			name = _("JPST_ROOF_{key}_NAME"),
-			description = _("JPST_ROOF_DESC"),
+			description = _("JPST_ROOF_{'ARM_' if extra else ''}DESC"),
 			icon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}.tga",
 			previewIcon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}_preview@2x.tga",
 			attributes = {{

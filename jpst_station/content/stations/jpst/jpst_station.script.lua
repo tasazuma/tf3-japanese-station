@@ -61,15 +61,17 @@ local function templateRows(nTracks, side)
 	return rows
 end
 
+-- The placement menu only offers the level; everything else starts from these defaults (one track with a
+-- side platform, 160 m) and is changed afterwards through modules. The params stay readable for tests.
 local function createTemplateFn(captureParams, params)
-	local n = paramIndex(params.jpst_length, 3, LENGTH_COUNT)
-	local nTracks = paramIndex(params.jpst_tracks, 2, MAX_TRACKS)
+	local n = paramIndex(params.jpst_length, 4, LENGTH_COUNT)
+	local nTracks = paramIndex(params.jpst_tracks, 1, MAX_TRACKS)
 	local typeIdx = paramIndex(params.jpst_trackType, 2, #layout.TRACK_TYPES)
 	-- 1 = none, 2 = yes, 3 = yes without poles
 	local catenaryIdx = paramIndex(params.jpst_catenary, 2, 3)
 	local catenary = catenaryIdx >= 2
 	local level = (paramIndex(params.jpst_level, 1, 2) == 2) and layout.LEVEL.ELEVATED or GROUND
-	local sidePlatforms = paramIndex(params.jpst_platformLayout, 1, 2) == 2
+	local sidePlatforms = paramIndex(params.jpst_platformLayout, 2, 2) == 2
 	local platformWidth = PLATFORM_WIDTHS[paramIndex(params.jpst_platformWidth, 2, #PLATFORM_WIDTHS)]
 	local trackName = layout.trackModuleName(layout.TRACK_TYPES[typeIdx], catenary, level, catenaryIdx == 3)
 	-- 2F concourse is only for ground stations (it would cut through a viaduct)
@@ -261,10 +263,14 @@ local function addSlots(result, L, modules)
 			tf = transf.transl(vec3.new(0, layout.segY(seg), layout.CONCOURSE_Z))
 		elseif kind == KIND.UNDER then
 			tf = transf.transl(vec3.new(0, layout.segY(seg), 0))
+		elseif kind == KIND.ROOF then
+			-- a roof left behind after its platform was removed: keep it up at roof height with no spacing,
+			-- otherwise it blocks the platform slot underneath
+			tf = transf.mul(transf.transl(vec3.new(0, 0, ROOF_SLOT_Z)), layout.slotTransf(L, row, seg, level))
 		else
 			tf = layout.slotTransf(L, row, seg, level)
 		end
-		addSlot(id, tf, layout.slotTypeOf(id), { 1, 1, 1, 1 })
+		addSlot(id, tf, layout.slotTypeOf(id), kind == KIND.ROOF and { 0, 0, 0, 0 } or { 1, 1, 1, 1 })
 	end
 end
 

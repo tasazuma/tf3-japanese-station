@@ -250,13 +250,46 @@ end
 -- Platform roof (上家) ---------------------------------------------------------
 -- Vanilla perron_5_roof models are 40 m long and cover a 5 m platform, so wider platforms get one per 5 m.
 -- An end piece closes the roof where the next segment of the same platform has no roof.
--- params: roofModel, endModel (optional)
+-- params: roofModel, endModel (optional), arms (optional):
+--   arms = { models = {{id, transf}, ...}, ys = {...}, z, section = {width, height}, strut = {width, z0} }
+-- An arm is a beam from the roof edge over the neighbouring track, so the overhead wire hangs from the roof
+-- instead of from poles. `models` is one beam of unit size (x 0..1, y +-0.5, z -1..0); it is stretched to the
+-- reach and the section. `z` is the top of the beam above the rail (the wire hangs at about 6.4 m).
 
 local function roofXs(w)
 	local xs = {}
 	local n = math.max(1, math.floor(w / 5 + 0.5))
 	for k = 0, n - 1 do xs[#xs + 1] = -w / 2 + 2.5 + 5 * k end
 	return xs
+end
+
+local function addRoofArms(cs, T, z, tag, L, row, seg, level, arms)
+	local w = layout.width(L, row)
+	local sw, sh = arms.section[1], arms.section[2]
+	local strut = arms.strut
+	for _, side in ipairs({ -1, 1 }) do
+		local nb = layout.get(L, row + side, seg)
+		if nb and nb.kind == layout.KIND.TRACK and nb.level == level then
+			local reach = math.abs(layout.centre(L, row + side) - layout.centre(L, row))
+			local x0 = w / 2 - 0.3
+			for _, y in ipairs(arms.ys) do
+				-- a segment edge shared with the next roof is drawn once, by the next segment
+				if y < layout.SEG_LEN / 2 - 0.01 or not layout.hasRoof(L, row, seg + 1) then
+				-- side -1 is the same arm turned half a circle about the roof centre line
+				local B = { side, 0, 0, 0, 0, side, 0, 0, 0, 0, 1, 0, 0, y, z, 1 }
+				local S = { reach - x0, 0, 0, 0, 0, sw, 0, 0, 0, 0, sh, 0, x0, 0, arms.z, 1 }
+				local BS = mul16(mul16(T, B), S)
+				for _, m in ipairs(arms.models) do
+					table.insert(cs.models, { id = m.id, transf = mul16(BS, m.transf), tag = tag })
+				end
+				if strut then
+					addColumn(cs, mul16(T, B), w / 2 - 0.3 - strut.width, w / 2 - 0.3, -strut.width / 2, strut.width / 2,
+						strut.z0, arms.z - sh, tag)
+				end
+				end
+			end
+		end
+	end
 end
 
 local function updateRoof(captureParams, result, transform, tag, slotId, addModel, constrParams)
@@ -269,6 +302,7 @@ local function updateRoof(captureParams, result, transform, tag, slotId, addMode
 	local T = layout.slotTransf(L, row, seg, layout.LEVEL.GROUND)
 	local closeMinus = cfg.endModel and not layout.hasRoof(L, row, seg - 1)
 	local closePlus = cfg.endModel and not layout.hasRoof(L, row, seg + 1)
+	if cfg.arms then addRoofArms(cs, T, z, tag, L, row, seg, level, cfg.arms) end
 	for _, x in ipairs(roofXs(layout.width(L, row))) do
 		if cfg.roofModel then
 			addModelTo(cs.models, cfg.roofModel, T, lift(perronTransf(x), z), tag)

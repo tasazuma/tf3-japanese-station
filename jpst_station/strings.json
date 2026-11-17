@@ -90,6 +90,8 @@
 		"JPST_ROOF_A_NAME": "Platform roof (wooden)",
 		"JPST_ROOF_B_NAME": "Platform roof (steel)",
 		"JPST_ROOF_C_NAME": "Platform roof (modern)",
+		"JPST_ROOF_ERA_C_ARM_NAME": "Platform roof (modern, wire arms)",
+		"JPST_ROOF_ARM_DESC": "Like the modern roof, with beams reaching over the neighbouring tracks that carry the overhead wire. Use it with the wire-without-poles track.",
 		"JPST_ROOF_DESC": "Roof over one 40 m platform segment. Covers every 5 m of platform width; open ends are closed automatically."
 	},
 	"ja": {
@@ -183,6 +185,8 @@
 		"JPST_ROOF_A_NAME": "ホーム屋根（木造）",
 		"JPST_ROOF_B_NAME": "ホーム屋根（鉄骨）",
 		"JPST_ROOF_C_NAME": "ホーム屋根（モダン）",
+		"JPST_ROOF_ERA_C_ARM_NAME": "ホーム屋根（モダン・架線支持梁付き）",
+		"JPST_ROOF_ARM_DESC": "モダンな屋根に、隣の線路の上へ伸びて架線を支える梁を付けたものです。「架線柱なし」の線路と組み合わせて使います。",
 		"JPST_ROOF_DESC": "ホーム1区画（40m）分の上屋です。ホーム幅5mごとに屋根が付き、屋根の途切れる端は自動でふさがります。"
 	}
 }

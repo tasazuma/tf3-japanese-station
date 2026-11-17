@@ -100,6 +100,19 @@ local layout = require "jpst_station::/scripts/jpst/layout.lua"
 
 local con = loadData("/stations/jpst/jpst_station.con")
 local script = loadData("/stations/jpst/jpst_station.script")
+-- the placement menu now starts from one track / side platform / 160 m; the tests keep the former
+-- defaults (2 tracks, island, 120 m) unless they set a param themselves
+do
+	local create = script.createTemplateFn
+	script.createTemplateFn = function(cap, params)
+		local p = {}
+		for k, v in pairs(params) do p[k] = v end
+		if p.jpst_tracks == nil then p.jpst_tracks = 2 end
+		if p.jpst_platformLayout == nil then p.jpst_platformLayout = 1 end
+		if p.jpst_length == nil then p.jpst_length = 3 end
+		return create(cap, p)
+	end
+end
 local moduleScript = loadData("/stations/jpst/jpst_modules.script")
 
 TEST_MODULES = {} -- name -> function returning a desc (test-only modules)
@@ -1405,4 +1418,57 @@ do
 
 	local g = build({ modulesByName = script.createTemplateFn({}, { jpst_length = 1, jpst_tracks = 2 }) })
 	print((#pieces(g) == 0 and "" or "FAIL ") .. "ground no columns", #pieces(g))
+end
+
+-- 20) removing a platform / track module must offer its slot again
+print("== re-add slots ==")
+do
+	for _, nt in ipairs({ 1, 2 }) do
+		for _, pl in ipairs({ 1, 2 }) do
+			local mods = script.createTemplateFn({}, { jpst_tracks = nt, jpst_platformLayout = pl, jpst_length = 4, jpst_building = 3 })
+			local ids = {}
+			for id in pairs(mods) do ids[#ids + 1] = id end
+			table.sort(ids)
+			for _, id in ipairs(ids) do
+				local kind = layout.decode(id)
+				if kind == K.PLATFORM or kind == K.TRACK then
+					local m = {}
+					for k, v in pairs(mods) do if k ~= id then m[k] = v end end
+					local ok, r = pcall(build, { modulesByName = m })
+					local found = false
+					if ok then for _, s in ipairs(r.slots) do if s.id == id then found = true end end end
+					if not ok or not found then print("FAIL re-add slot", nt, pl, select(2, layout.decode(id)), select(3, layout.decode(id)), select(4, layout.decode(id)), ok and "missing" or r) end
+				end
+			end
+		end
+	end
+end
+
+-- 21) roof with wire arms: beams from the roof edge over the neighbouring tracks
+print("== roof arms ==")
+do
+	local ARM = layout.moduleName("jpst_roof_era_c_arm")
+	for _, lvl in ipairs({ 1, 2 }) do
+		local mods = script.createTemplateFn({}, { jpst_length = 1, jpst_tracks = 2, jpst_level = lvl, jpst_roof = 3, jpst_building = 3 })
+		for id, name in pairs(mods) do if (layout.decode(id)) == K.ROOF then mods[id] = ARM end end
+		local r = build({ modulesByName = mods })
+		local zTop, nBeam, nStrut, bad = (lvl == 2) and 17 or 7, 0, 0, 0
+		for _, md in ipairs(r.cargoStation.models) do
+			if md.id:find("c_pillar_small") then
+				local t = md.transf
+				local lo, hi = { math.huge, math.huge, math.huge }, { -math.huge, -math.huge, -math.huge }
+				for _, x in ipairs({ -1.056, 1.056 }) do for _, y in ipairs({ 0, 3 }) do for _, z in ipairs({ 0, 4 }) do
+					for i = 1, 3 do
+						local v = t[i] * x + t[4 + i] * y + t[8 + i] * z + t[12 + i]
+						lo[i], hi[i] = math.min(lo[i], v), math.max(hi[i], v)
+					end
+				end end end
+				local det = t[1] * (t[6] * t[11] - t[7] * t[10]) - t[5] * (t[2] * t[11] - t[3] * t[10]) + t[9] * (t[2] * t[7] - t[3] * t[6])
+				if det <= 0 then bad = bad + 1 end
+				if math.abs(hi[3] - zTop) < 1e-3 and hi[1] - lo[1] > 2 then nBeam = nBeam + 1
+				elseif math.abs((hi[1] - lo[1])) < 1 and hi[3] - lo[3] > 1 then nStrut = nStrut + 1 end
+			end
+		end
+		print((nBeam == 12 and nStrut == 12 and bad == 0 and "" or "FAIL ") .. "roof arms level " .. lvl, nBeam, nStrut, bad)
+	end
 end

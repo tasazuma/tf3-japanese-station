@@ -30,6 +30,7 @@ function data()
 			params = {
 				roofModel = "::/stations/rail/era_c/perron_5_roof.mdl",
 				endModel = "::/stations/rail/era_c/perron_5_roof_end.mdl",
+				
 			},
 		},
 		getModelsScript = {
@@ -37,6 +38,7 @@ function data()
 			params = {
 				roofModel = "::/stations/rail/era_c/perron_5_roof.mdl",
 				endModel = "::/stations/rail/era_c/perron_5_roof_end.mdl",
+				
 			},
 		},
 		builderAudioRes = "::/gui/construction/sound/buildoze_module.builder_audio",
