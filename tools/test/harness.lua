@@ -340,6 +340,7 @@ local function connectivity(label, r, tol)
 	end
 	print(("connectivity %s: lanes=%d components=%d unlinked terminal edges=%d linkable lanes=%s"):format(
 		label, #cs.laneLists, nc, bad, next(linkRoots) and "yes" or "NO"))
+	return bad, linkRoots
 end
 connectivity("default", r1)
 connectivity("5m + building +X", build({ modulesByName = m5 }))
@@ -1084,4 +1085,167 @@ do
 	for _, ll in ipairs(r5.cargoStation.laneLists) do if #ll.nodes == 0 then print("FAIL empty lane list") end end
 	io.write("deck no concourse ignored=" .. nIgnored(r5) .. " ")
 	connectivity("", r5)
+end
+
+-- 15) platform signs: track numbers (番線) and station name boards
+print("== signs ==")
+do
+	local function numberLabels(r, row)
+		local out = {}
+		for _, s in ipairs(r.jpst.signs) do
+			local id = r.cargoStation.models[s.index + 1].id
+			if s.label == "number" then
+				if not id:find("perron_number") then print("FAIL number sign index points to", id) end
+				if s.row == row then table.insert(out, table.concat(r.cargoStation.labelText[s.index], ",")) end
+			elseif not id:find("station_name") then
+				print("FAIL name sign index points to", id)
+			end
+		end
+		return out
+	end
+	local function expect(label, got, want)
+		local ok = #got > 0
+		for _, g in ipairs(got) do if g ~= want then ok = false end end
+		print((ok and "" or "FAIL ") .. "signs " .. label, table.concat(got, " | "), "want", want)
+	end
+	local r2 = build({ modulesByName = m2 })
+	expect("3 tracks row -1", numberLabels(r2, -1), "1,1,2,2")
+	expect("3 tracks row 1", numberLabels(r2, 1), "2,2,3,3")
+	local r5 = build({ modulesByName = m5 })
+	expect("building +X counts from +X", numberLabels(r5, 0), "2,2,1,1")
+	-- side platform: no track on the outer side
+	local ms = {}
+	for j = 0, 1 do
+		ms[layout.encode(K.TRACK, G, 0, j)] = T
+		ms[layout.encode(K.PLATFORM, G, 1, j)] = layout.moduleName("jpst_platform_island_5")
+	end
+	expect("side platform", numberLabels(build({ modulesByName = ms }), 1), "1,1,,")
+	-- elevated platform next to a ground track: the ground track is not its track
+	local E = layout.LEVEL.ELEVATED
+	local me = {
+		[layout.encode(K.TRACK, G, -1, 0)] = T,
+		[layout.encode(K.TRACK, E, 1, 0)] = layout.trackModuleName(layout.TRACK_TYPES[2], true, E),
+		[layout.encode(K.PLATFORM, E, 0, 0)] = layout.moduleName("jpst_platform_elevated_island_5"),
+	}
+	local okE, re = pcall(build, { modulesByName = me })
+	if okE then expect("elevated next to ground", numberLabels(re, 0), ",,2,2") else print("FAIL elevated signs", re) end
+	local n = 0
+	for _ in pairs(r2.cargoStation.labelText) do n = n + 1 end
+	print("labelText entries (3 tracks, 2 segs)", n)
+end
+
+-- 16) 高架下駅舎 (station hall under the viaduct)
+print("== under viaduct ==")
+do
+	local UV = layout.moduleName("jpst_underviaduct_pillars")
+	local me = script.createTemplateFn({}, { jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2 })
+	local PIER = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl"
+	local function uid(seg) return layout.encode(K.UNDER, G, 0, seg) end
+	local function linkables(r)
+		local n = 0
+		for _, ll in ipairs(r.cargoStation.laneLists) do if ll.linkable then n = n + 1 end end
+		return n
+	end
+	local function check(label, r, wantLink)
+		local bad = connectivity("under " .. label, r)
+		local n = linkables(r)
+		if bad ~= 0 or (wantLink and n ~= wantLink) then print("FAIL under " .. label, "unlinked", bad, "linkables", n, "want", wantLink) end
+		for _, mdl in ipairs(r.cargoStation.models) do for i = 1, 16 do
+			if mdl.transf[i] ~= mdl.transf[i] then print("FAIL under NaN", label) return end
+		end end
+	end
+	-- a) template: elevated + passage 3, no side building: every layout must reach the street via the hall
+	local nBad = 0
+	for pl = 1, 2 do for pw = 1, 2 do for nt = 1, 8 do
+		local p = { jpst_passage = 3, jpst_building = 3, jpst_platformLayout = pl, jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2, jpst_tracks = nt, jpst_platformWidth = pw }
+		local m = script.createTemplateFn({}, p)
+		if m[uid(0)] ~= UV then nBad = nBad + 1; print("FAIL under template missing", pl, pw, nt) end
+		local r = build({ modulesByName = m })
+		if r.jpst.layout.ignored[uid(0)] then nBad = nBad + 1; print("FAIL under ignored", pl, pw, nt) end
+		local bad = connectivity(("under tpl layout=%d w=%d tracks=%d"):format(pl, pw, nt), r)
+		if bad ~= 0 or linkables(r) ~= 2 then nBad = nBad + 1; print("FAIL under tpl", pl, pw, nt, bad, linkables(r)) end
+	end end end
+	print("under template sweep bad", nBad)
+	-- passage 3 on a ground station places nothing
+	local mg = script.createTemplateFn({}, { jpst_passage = 3, jpst_level = 1, jpst_length = 3, jpst_tracks = 2 })
+	if mg[uid(0)] then print("FAIL under on ground template") end
+
+	-- b) small building on -X: exit only on +X (building street lane + 1 exit)
+	local pb = { jpst_passage = 3, jpst_building = 1, jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2, jpst_tracks = 2 }
+	local mb = script.createTemplateFn({}, pb)
+	check("building -X", build({ modulesByName = mb }), 2)
+
+	-- c) mixed ground/elevated (building -X): the hall under rows 2..4 opens on +X only
+	local mxu = {}
+	for k, v in pairs(mx) do mxu[k] = v end
+	mxu[uid(0)] = UV
+	local rxu = build({ modulesByName = mxu })
+	if rxu.jpst.layout.ignored[uid(0)] then print("FAIL under mixed ignored") end
+	check("mixed", rxu, 2)
+	-- the +X exit (row 4 edge + 4 m) is a linkable lane at y=0
+	local xEdge = layout.centre(rxu.jpst.layout, 4) + layout.width(rxu.jpst.layout, 4) / 2
+	local comp = components(rxu)
+	if not comp(xEdge + 4, 0, 0) then print("FAIL under mixed: no exit node at", xEdge + 4) end
+
+	-- d) ground-only segment: ignored, keeps a slot; no free slot offered there
+	local mg2 = { [layout.encode(K.TRACK, G, 0, 0)] = T, [layout.encode(K.PLATFORM, G, 1, 0)] = layout.moduleName("jpst_platform_island_10"), [uid(0)] = UV }
+	local rg = build({ modulesByName = mg2 })
+	print((rg.jpst.layout.ignored[uid(0)] and "" or "FAIL ") .. "under on ground ignored")
+
+	-- e) slots: one per segment with an elevated row; none for ground-only segments; free ground slots
+	--    must not overlap the hall slot box
+	local rs2 = build({ modulesByName = me })
+	local nU = 0
+	for _, s in ipairs(rs2.slots) do if s.type == "jpst_underviaduct" then nU = nU + 1 end end
+	print((nU == 3 and "" or "FAIL ") .. "under slots (3 elevated segments)", nU)
+	local rgs = build({ modulesByName = script.createTemplateFn({}, { jpst_level = 1, jpst_length = 3 }) })
+	for _, s in ipairs(rgs.slots) do if s.type == "jpst_underviaduct" then print("FAIL under slot on ground station") break end end
+	local ov = 0
+	for _, r in ipairs({ rxu, rs2 }) do
+		local us
+		for _, s in ipairs(r.slots) do if s.type == "jpst_underviaduct" and s.id == uid(0) then us = s end end
+		if us then
+			local ax0, ax1, ay0, ay1, az = slotBox(us)
+			for _, s in ipairs(r.slots) do
+				if s ~= us then
+					local bx0, bx1, by0, by1, bz = slotBox(s)
+					if math.abs(az - bz) < 1 and math.min(ax1, bx1) - math.max(ax0, bx0) > 1e-3 and math.min(ay1, by1) - math.max(ay0, by0) > 1e-3 then
+						ov = ov + 1
+						print("  overlap", s.type, s.id)
+					end
+				end
+			end
+		end
+	end
+	print((ov == 0 and "" or "FAIL ") .. "under slot overlaps", ov)
+
+	-- f) stand-in piers are replaced by the column grid in the hall segment only
+	local function piersAt(r, seg)
+		local n = 0
+		for _, mdl in ipairs(r.cargoStation.models) do
+			if mdl.id == PIER and math.abs(mdl.transf[14] - layout.segY(seg)) < 20 then n = n + 1 end
+		end
+		return n
+	end
+	local me2 = {}
+	for k, v in pairs(me) do me2[k] = v end
+	local r0 = build({ modulesByName = me2 })
+	me2[uid(0)] = UV
+	local r1u = build({ modulesByName = me2 })
+	print("under piers seg0 before/after", piersAt(r0, 0), piersAt(r1u, 0), "seg1", piersAt(r0, 1), piersAt(r1u, 1))
+	if piersAt(r1u, 1) ~= piersAt(r0, 1) then print("FAIL under piers changed in other segment") end
+	check("default elevated + hall", r1u)
+
+	-- g) elevated stair lanes follow the stair model: down towards the segment centre (y = +-1 at deck level)
+	local turns = 0
+	for _, ll in ipairs(r0.cargoStation.laneLists) do
+		local t = ll.transf
+		for _, nd in ipairs(ll.nodes) do
+			local p = nd[1]
+			local py = t[2] * p[1] + t[6] * p[2] + t[10] * p[3] + t[14] - layout.segY(0)
+			local pz = t[3] * p[1] + t[7] * p[2] + t[11] * p[3] + t[15]
+			if math.abs(math.abs(py) - 1) < 0.01 and math.abs(pz - (layout.ELEVATED_Z - 2.4)) < 0.01 then turns = turns + 1 end
+		end
+	end
+	print((turns > 0 and "" or "FAIL ") .. "elevated stair turn nodes seg0", turns)
 end

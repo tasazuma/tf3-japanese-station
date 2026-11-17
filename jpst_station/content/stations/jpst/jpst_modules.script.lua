@@ -22,6 +22,11 @@ local function perronTransf(x)
 	return transf.rotZTransl(math.rad(90), vec3.new(x, -20, 0))
 end
 
+-- vanilla platform furniture faces along local X, so turn it to run along Y like the perrons
+local function signTransf(s)
+	return transf.rotZTransl(math.rad(90 + (s.rotZ or 0)), vec3.new(s.x or 0, s.y or 0, s.z or 0))
+end
+
 local function lift(localTransf, z)
 	if z == 0 then return localTransf end
 	return transf.mul(transf.transl(vec3.new(0, 0, z)), localTransf)
@@ -69,9 +74,11 @@ local function addConcourse(cs, transform, rowWidth, cx)
 end
 
 -- Stand-in viaduct under an elevated platform: stretched concrete bridge deck plus two piers.
-local function addViaduct(cs, transform, w, tag)
+-- A 高架下駅舎 in the segment brings its own column grid, so the stand-in piers are left out there.
+local function addViaduct(cs, transform, w, tag, noPiers)
 	local deck = transf.scaleXYZRotZTransl(vec3.new(40 / 6, w / 4, 1), math.rad(90), vec3.new(w / 2, -20, EZ))
 	addModelTo(cs.models, DECK_MODEL, transform, deck, tag)
+	if noPiers then return end
 	local pierH = EZ - DECK_DEPTH
 	for _, y in ipairs({ -12, 12 }) do
 		local pier = transf.scaleXYZRotZTransl(vec3.new(1, 1, pierH / 4), math.rad(90), vec3.new(1.5, y, 0))
@@ -136,11 +143,15 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	if elevated then transform = groundTransf(transform) end
 	local z = elevated and EZ or 0
 	local top = z + H
-	-- elevated stairs need a longer run, so they start closer to the segment centre
-	local stairY = elevated and 5 or 7.5
+	local stairY = 7.5
 
 	for _, m in ipairs(cfg.models) do
 		addModelTo(cs.models, m.id, transform, lift(perronTransf(m.x), z), tag)
+	end
+	for _, s in ipairs(cfg.signs or {}) do
+		-- labelText is keyed by the 0-based index into cargoStation.models; the hook fills it
+		if s.label then table.insert(J.signs, { index = #cs.models, label = s.label, row = row, seg = seg }) end
+		addModelTo(cs.models, s.id, transform, lift(signTransf(s), z), tag)
 	end
 	-- neighbours must share the level to count (rows are single-level, so checking the row is enough)
 	if not layout.isPlatform(L, row, seg - 1) then
@@ -160,7 +171,7 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	end
 
 	if elevated then
-		addViaduct(cs, transform, w, tag)
+		addViaduct(cs, transform, w, tag, L.underViaducts[seg] ~= nil)
 		addBox(cs, transform, -w / 2, -20, w / 2, 20, 3, "EQUAL", layout.GROUND_MODES_PLATFORM, EZ)
 	else
 		addBox(cs, transform, -w / 2, -20, w / 2, 20, 6, "EQUAL", layout.GROUND_MODES_PLATFORM)
@@ -181,9 +192,12 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	if sx and elevated then
 		for _, y in ipairs({ -stairY, stairY }) do
 			layout.addLane(cs, { { xm, y, top }, { sx, y, top }, { xp, y, top } }, LANE_WIDTH, false, transform)
-			-- descend outward to the concourse at the segment end (about 15 m run for an 11 m drop)
+			-- follow the stair model (it descends towards the segment centre like the vanilla underpass),
+			-- then turn back under the deck and descend outward to the concourse at the segment end
 			local dir = (y < 0) and -1 or 1
-			layout.addLane(cs, { { sx, y, top }, { sx, dir * 20, 0 } }, LANE_WIDTH, false, transform)
+			local turn = { sx, dir * 1, EZ - DECK_DEPTH }
+			layout.addLane(cs, { { sx, y, top }, { sx, y * 2 / 3, top }, turn }, LANE_WIDTH, false, transform)
+			layout.addLane(cs, { turn, { sx, dir * 20, 0 } }, LANE_WIDTH, false, transform)
 		end
 	elseif sx then
 		for _, y in ipairs({ -stairY, stairY }) do
@@ -209,6 +223,9 @@ local function getModelsPlatform(captureParams, params)
 	end
 	table.insert(res, { id = captureParams.endModel, transf = transf.rotZTransl(math.rad(-90), vec3.new(0, -20, 0)) })
 	table.insert(res, { id = captureParams.endModel, transf = transf.rotZTransl(math.rad(90), vec3.new(0, 20, 0)) })
+	for _, s in ipairs(captureParams.signs or {}) do
+		table.insert(res, { id = s.id, transf = signTransf(s) })
+	end
 	return res
 end
 
@@ -407,6 +424,99 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 			addBox(cs, T, x0, -8, x1, 8, nil, "EQUAL", layout.GROUND_MODES_PLATFORM)
 		end
 	end
+end
+
+-- Station building under the viaduct (高架下駅舎) -------------------------------------
+-- One module per segment at ground level under its elevated rows (綱島・大倉山 style: ticket hall between
+-- the viaduct columns). The ground lanes under the viaduct come from the elevated cells (cross lane at
+-- y=0); this module adds a public street exit on every outer side of the station that has no building,
+-- so an elevated station works without a side building. The look comes from params (skins):
+--   columns = { id, rotZ, scale = { sx, sy, sz }, offset = { x, y }, ys = { ... }, minGap }: a column at
+--             every ys (segment-local Y) on both outer edges of each elevated block and on inner row
+--             boundaries at least minGap apart;
+--   exitModels = models at every street exit, building frame: origin at the row edge (segment centre),
+--             +X along the tracks, -Y out of the station;
+--   hallModels = models per elevated block, relative to its centre (station X, segment-local Y).
+
+local UNDER_EXIT_RUN = 4 -- paved exit outside the row edge; its far end is the linkable street lane
+local UNDER_COLUMN_INSET = 0.5
+
+local function underBlockEdges(L, b)
+	return layout.centre(L, b.first) - layout.width(L, b.first) / 2, layout.centre(L, b.last) + layout.width(L, b.last) / 2
+end
+
+local function updateUnderViaduct(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local L = result.jpst.layout
+	if L.ignored[slotId] or not L.underViaducts then return end
+	local _, _, _, seg = layout.decode(slotId)
+	if L.underViaducts[seg] ~= slotId then return end
+	local cs = result.cargoStation
+	local cfg = captureParams or {}
+	local s = L.segs[seg]
+	local T = transf.transl(vec3.new(0, layout.segY(seg), 0))
+
+	for _, b in ipairs(layout.elevatedBlocks(L, seg)) do
+		local x0, x1 = underBlockEdges(L, b)
+
+		local col = cfg.columns
+		if col and col.id then
+			local xs = { x0 + UNDER_COLUMN_INSET }
+			local minGap = col.minGap or 6
+			local last = xs[1]
+			for row = b.first, b.last - 1 do
+				local xb = layout.centre(L, row) + layout.width(L, row) / 2
+				if xb - last >= minGap and x1 - xb >= minGap then
+					table.insert(xs, xb)
+					last = xb
+				end
+			end
+			table.insert(xs, x1 - UNDER_COLUMN_INSET)
+			local sc = col.scale or { 1, 1, 1 }
+			local off = col.offset or { 0, 0 }
+			for _, x in ipairs(xs) do
+				for _, y in ipairs(col.ys or { -15, -5, 5, 15 }) do
+					local t = transf.scaleXYZRotZTransl(vec3.new(sc[1], sc[2], sc[3]), math.rad(col.rotZ or 0),
+						vec3.new(x + off[1], y + off[2], 0))
+					addModelTo(cs.models, col.id, T, t, tag)
+				end
+			end
+		end
+
+		local C = transf.mul(T, transf.transl(vec3.new((x0 + x1) / 2, 0, 0)))
+		for _, m in ipairs(cfg.hallModels or {}) do
+			local id, t = buildingModelTransf(m)
+			addModelTo(cs.models, id, C, t, tag)
+		end
+
+		-- public exits on the outer sides of the station without a building
+		for _, side in ipairs({ layout.SIDE.MINUS_X, layout.SIDE.PLUS_X }) do
+			local outer = (side == layout.SIDE.MINUS_X) and b.first == s.minRow or (side == layout.SIDE.PLUS_X and b.last == s.maxRow)
+			if outer and not L.buildingAt[side][seg] then
+				local dir = (side == layout.SIDE.MINUS_X) and -1 or 1
+				local xEdge = (dir < 0) and x0 or x1
+				local xFoot = xEdge + dir * UNDER_EXIT_RUN
+				layout.addLane(cs, { { xEdge, 0, 0 }, { xFoot, 0, 0 } }, LANE_WIDTH, false, T)
+				layout.addLane(cs, { { xFoot, -8, 0 }, { xFoot, 0, 0 }, { xFoot, 8, 0 } }, LANE_WIDTH, true, T)
+				addBox(cs, T, math.min(xEdge, xFoot), -8, math.max(xEdge, xFoot), 8, nil, "EQUAL", layout.GROUND_MODES_PLATFORM)
+				local E = transf.mul(T, transf.rotZTransl(math.rad(dir < 0 and -90 or 90), vec3.new(xEdge, 0, 0)))
+				for _, m in ipairs(cfg.exitModels or {}) do
+					local id, t = buildingModelTransf(m)
+					addModelTo(cs.models, id, E, t, tag)
+				end
+			end
+		end
+	end
+end
+
+local function getModelsUnderViaduct(captureParams, params)
+	local res = {}
+	for _, key in ipairs({ "hallModels", "exitModels" }) do
+		for _, m in ipairs((captureParams or {})[key] or {}) do
+			local id, t = buildingModelTransf(m)
+			table.insert(res, { id = id, transf = t })
+		end
+	end
+	return res
 end
 
 -- Forecourt (駅前) -------------------------------------------------------------
@@ -849,6 +959,10 @@ function data()
 		concourse = {
 			updateFn = updateConcourse,
 			getModelsFn = getModelsConcourse,
+		},
+		underviaduct = {
+			updateFn = updateUnderViaduct,
+			getModelsFn = getModelsUnderViaduct,
 		},
 		forecourt = {
 			updateFn = updateForecourt,

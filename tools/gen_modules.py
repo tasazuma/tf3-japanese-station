@@ -107,6 +107,19 @@ end
 ''')
 
 
+# Platform furniture in the platform frame (x across, y along -20..20, z above the track bed).
+# label = "number" gets the track numbers (labels 1-2: track on -X, 3-4: track on +X), "name" the station name.
+SIGNS = """	signs = {
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -10, z = 1.1 },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 0, z = 1.1 },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 10, z = 1.1 },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -10, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 10, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = 0.235, z = 3.5, label = "number" },
+	},
+"""
+
+
 def gen_platforms():
     for level, (infix, slot_suffix, str_infix, order_off) in LEVELS.items():
         factor = ELEVATED_PRICE_FACTOR if level == "elevated" else 1
@@ -123,7 +136,7 @@ def gen_platforms():
 	}},
 	endModel = "{ERA_C}{end}",
 	borderModel = "{ERA_C}{border}",
-}}
+{SIGNS}}}
 
 function data()
 	return {{
@@ -566,12 +579,86 @@ end
 ''')
 
 
+ASSET_RAIL = "::/assets/stations/rail/"
+TICKETS = "::/assets/stations/street/tickets_era_c_1.mdl"
+# column under a Japanese rigid-frame viaduct: the 3 x 3 m concrete pier piece scaled to 1 x 1 m,
+# 7.6 m up to the deck (ELEVATED_Z 10 - deck 2.4); the piece spans local y 0..3, hence rotZ 90 + offset
+UNDER_PILLAR = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl"
+UNDER_SKINS = {
+    "pillars": dict(
+        columns=f'''{{ id = "{UNDER_PILLAR}", rotZ = 90, scale = {{ 1 / 3, 1 / 3, 7.6 / 4 }}, offset = {{ 0.5, 0 }},
+				ys = {{ -15, -5, 5, 15 }}, minGap = 6 }}''',
+        exitModels=[
+            (TICKETS, 3.5, 2.5, -90), (TICKETS, 3.5, 3.6, -90), (TICKETS, -3.5, 2.5, 90), (TICKETS, -3.5, 3.6, 90),
+            (ASSET_RAIL + "era_c_trashcan.mdl", 5.5, 1.0, 0),
+            (ASSET_RAIL + "era_c_double_chair.mdl", -10, 1.5, 90), (ASSET_RAIL + "era_c_double_chair.mdl", 10, 1.5, 90),
+        ],
+        price=80000,
+    ),
+}
+
+
+def gen_underviaduct():
+    for skin, d in UNDER_SKINS.items():
+        models = "\n".join(f'\t\t\t\t{{ id = "{i}", x = {x}, y = {y}, rotZ = {r} }},' for i, x, y, r in d["exitModels"])
+        key = skin.upper()
+        price = d["price"]
+        params = f'''{{
+				columns = {d["columns"]},
+				exitModels = {{
+{models}
+				}},
+				hallModels = {{}},
+			}}'''
+        write(f"jpst_underviaduct_{skin}", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_building", filterCategories = {{ "passenger" }}, order = 21 }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_UNDERVIADUCT_{key}_NAME"),
+			description = _("JPST_UNDERVIADUCT_{key}_DESC"),
+			icon = "::/stations/rail/modular_station/stairs.tga",
+			previewIcon = "::/stations/rail/modular_station/stairs_preview@2x.tga",
+			attributes = {{
+				cost = {{ {price}, -1 }},
+				maintenanceCost = {{ {price // 10}, -1 }},
+			}},
+		}},
+		type = "jpst_underviaduct",
+		metadata = {{
+			jpst_underviaduct = true,
+			moreCapacity = {{ passenger = 50 }},
+			emissionConfig = {{ noise = 1, pollution = 1 }},
+			catchmentPassenger = {{ radius = 200 }},
+			comfortFactor = 0.1,
+			price = {price},
+			maintenanceCost = {price // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@underviaduct.updateFn",
+			params = {params},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@underviaduct.getModelsFn",
+			params = {params},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
 if __name__ == "__main__":
     gen_tracks()
     gen_platforms()
     gen_building()
     gen_brick_buildings()
     gen_concourse()
+    gen_underviaduct()
     gen_forecourts()
     gen_decks()
     gen_rotaries()

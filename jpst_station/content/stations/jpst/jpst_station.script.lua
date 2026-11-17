@@ -17,6 +17,7 @@ local function brickBuildingName(size)
 	return layout.moduleName("jpst_building_brick_" .. tostring(size))
 end
 local CONCOURSE = layout.moduleName("jpst_concourse")
+local UNDER_VIADUCT = layout.moduleName("jpst_underviaduct_pillars")
 
 local DEFAULT_CATCHMENT_RADIUS = 150
 
@@ -68,7 +69,10 @@ local function createTemplateFn(captureParams, params)
 	local platformWidth = PLATFORM_WIDTHS[paramIndex(params.jpst_platformWidth, 2, #PLATFORM_WIDTHS)]
 	local trackName = layout.trackModuleName(layout.TRACK_TYPES[typeIdx], catenary, level)
 	-- 2F concourse is only for ground stations (it would cut through a viaduct)
-	local concourse = level == GROUND and paramIndex(params.jpst_passage, 1, 2) == 2
+	local passage = paramIndex(params.jpst_passage, 1, 3)
+	local concourse = level == GROUND and passage == 2
+	-- 高架下駅舎 is only for elevated stations
+	local underViaduct = level == layout.LEVEL.ELEVATED and passage == 3
 
 	local result = {}
 	local s = -math.floor(n / 2)
@@ -99,6 +103,9 @@ local function createTemplateFn(captureParams, params)
 	end
 	if concourse then
 		result[layout.encode(KIND.CONCOURSE, GROUND, 0, 0)] = CONCOURSE
+	end
+	if underViaduct then
+		result[layout.encode(KIND.UNDER, GROUND, 0, 0)] = UNDER_VIADUCT
 	end
 	return result
 end
@@ -204,6 +211,15 @@ local function addSlots(result, L, modules)
 			layout.SLOT_TYPE[KIND.CONCOURSE], { half, half, layout.CONCOURSE_HALF_WIDTH, layout.CONCOURSE_HALF_WIDTH })
 	end
 
+	-- 高架下駅舎: ground level under the elevated rows of a segment (10 m below the elevated slots)
+	for seg, _ in pairs(L.segs) do
+		local tf, half = layout.underViaductSlotTransf(L, seg)
+		if tf then
+			addSlot(layout.encode(KIND.UNDER, GROUND, 0, seg), tf, layout.SLOT_TYPE[KIND.UNDER],
+				{ half - 0.5, half - 0.5, 4, 4 })
+		end
+	end
+
 	-- Ignored modules still need their slot, otherwise the construction is invalid; the user can remove them there.
 	for id in pairs(L.ignored) do
 		local kind, level, row, seg = layout.decode(id)
@@ -213,6 +229,8 @@ local function addSlots(result, L, modules)
 			tf = transf.transl(vec3.new(0, layout.segY(seg), z))
 		elseif kind == KIND.CONCOURSE then
 			tf = transf.transl(vec3.new(0, layout.segY(seg), layout.CONCOURSE_Z))
+		elseif kind == KIND.UNDER then
+			tf = transf.transl(vec3.new(0, layout.segY(seg), 0))
 		else
 			tf = layout.slotTransf(L, row, seg, level)
 		end
@@ -293,6 +311,42 @@ local function buildTerminals(result, L)
 	return terminals
 end
 
+-- Japanese track numbers (番線): every track row gets a number, counted from the station building side
+-- (from -X unless buildings stand only on +X). Number signs show the tracks on both sides of their platform.
+local function trackNumbers(result, L)
+	local rows = {}
+	for row, _ in pairs(result.jpst.tracks) do table.insert(rows, row) end
+	table.sort(rows)
+	local fromPlus = next(L.buildingAt[layout.SIDE.PLUS_X]) ~= nil and next(L.buildingAt[layout.SIDE.MINUS_X]) == nil
+	local numbers = {}
+	for i, row in ipairs(rows) do numbers[row] = fromPlus and (#rows - i + 1) or i end
+	return numbers
+end
+
+local function fillSignLabels(result, L)
+	local J = result.jpst
+	if #J.signs == 0 then return end
+	local numbers = trackNumbers(result, L)
+	local function numberAt(platformRow, row, seg)
+		local t = J.tracks[row]
+		if t and t[seg] and layout.rowLevel(L, row) == layout.rowLevel(L, platformRow) then
+			return tostring(numbers[row])
+		end
+		return ""
+	end
+	local labelText = result.cargoStation.labelText
+	for _, s in ipairs(J.signs) do
+		if s.label == "number" then
+			local m = numberAt(s.row, s.row - 1, s.seg)
+			local p = numberAt(s.row, s.row + 1, s.seg)
+			labelText[s.index] = { m, m, p, p }
+		elseif s.label == "name" then
+			-- same as vanilla: STATION_NAME labels get the station index, the game draws the name
+			labelText[s.index] = { "0", "0" }
+		end
+	end
+end
+
 local function updateFn(captureParams, params)
 	local result = {}
 	result.models = {}
@@ -315,6 +369,7 @@ local function updateFn(captureParams, params)
 		platforms = {}, -- platforms[row][seg] = { minus = laneIdx, plus = laneIdx }
 		busStops = {},  -- bus stop terminals from bus rotary modules (lane indices into cargoStation.laneLists)
 		streets = {},   -- street edge lists (rotary stubs), appended after the track lists in the hook
+		signs = {},     -- { index (0-based into cargoStation.models), label = "number"|"name", row, seg }
 	}
 
 	addSlots(result, L, modules)
@@ -335,6 +390,7 @@ local function updateFn(captureParams, params)
 		local cs = result.cargoStation
 
 		local terminals = buildTerminals(result, L)
+		fillSignLabels(result, L)
 		for _, b in ipairs(result.jpst.busStops) do
 			table.insert(terminals, {
 				personEdges = b.personEdges,

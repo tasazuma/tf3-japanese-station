@@ -16,7 +16,7 @@ layout.CONCOURSE_Z = 9 -- 2F concourse floor over ground tracks
 layout.CONCOURSE_HALF_WIDTH = 5
 layout.BRIDGE_TYPE = "::/infrastructure/bridge/concrete.bridge"
 
-layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5 }
+layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6 }
 layout.LEVEL = { GROUND = 0, ELEVATED = 1 } -- 2..9 reserved (underground etc.)
 layout.LEVEL_Z = { [0] = 0, [1] = layout.ELEVATED_Z }
 layout.LEVEL_SUFFIX = { [0] = "", [1] = "_elevated" }
@@ -38,11 +38,14 @@ layout.SLOT_TYPE = {
 	[3] = "jpst_building",
 	[4] = "jpst_concourse",
 	[5] = "jpst_forecourt",
+	[6] = "jpst_underviaduct",
 }
 
 -- Track/platform slot types differ per level so the module picker only shows matching slots.
 function layout.slotType(kind, level)
-	if kind == layout.KIND.BUILDING or kind == layout.KIND.CONCOURSE then return layout.SLOT_TYPE[kind] end
+	if kind == layout.KIND.BUILDING or kind == layout.KIND.CONCOURSE or kind == layout.KIND.UNDER then
+		return layout.SLOT_TYPE[kind]
+	end
 	return layout.SLOT_TYPE[kind] .. (layout.LEVEL_SUFFIX[level] or "")
 end
 
@@ -145,6 +148,7 @@ function layout.compute(modules)
 		buildings = {},  -- [slotId] = { module, side, size, seg, depth, front, back }
 		buildingAt = { [0] = {}, [1] = {} }, -- buildingAt[side][seg] = slotId of the building covering it
 		concourses = {}, -- [seg] = slotId (one per segment)
+		underViaducts = {}, -- [seg] = slotId of the 高架下駅舎 (one per segment, needs an elevated row)
 		forecourts = {}, -- [slotId] = { module, level, side, d, w, h, seg } (level 0 = 1F plaza, 1 = deck)
 		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
 		deckAt = { [0] = {}, [1] = {} },      -- deckAt[side][d][seg] = slotId (deck, level 1)
@@ -192,6 +196,8 @@ function layout.compute(modules)
 			L.forecourts[id] = { module = m, level = level }
 		elseif kind == layout.KIND.CONCOURSE and L.concourses[seg] == nil then
 			L.concourses[seg] = id
+		elseif kind == layout.KIND.UNDER and level == layout.LEVEL.GROUND and L.underViaducts[seg] == nil then
+			L.underViaducts[seg] = id
 		else
 			L.ignored[id] = true
 		end
@@ -232,6 +238,14 @@ function layout.compute(modules)
 		end
 		if not ok then
 			L.concourses[seg] = nil
+			L.ignored[id] = true
+		end
+	end
+
+	-- The station building under the viaduct needs at least one elevated row in its segment.
+	for seg, id in pairs(L.underViaducts) do
+		if not layout.elevatedBlocks(L, seg)[1] then
+			L.underViaducts[seg] = nil
 			L.ignored[id] = true
 		end
 	end
@@ -420,6 +434,36 @@ function layout.forecourtGap(L, side, s)
 	local b = bid and L.buildings[bid]
 	if not b or not L.forecourtBase[side] then return 0 end
 	return math.abs(L.forecourtBase[side] - b.back)
+end
+
+-- Runs of adjacent elevated rows in a segment: { { first = row, last = row }, ... } from -X to +X.
+function layout.elevatedBlocks(L, seg)
+	local blocks = {}
+	local s = L.segs[seg]
+	if not s then return blocks end
+	local cur
+	for row = s.minRow, s.maxRow do
+		local c = L.cells[row] and L.cells[row][seg]
+		if c and c.level == layout.LEVEL.ELEVATED then
+			if cur and cur.last == row - 1 then
+				cur.last = row
+			else
+				cur = { first = row, last = row }
+				table.insert(blocks, cur)
+			end
+		end
+	end
+	return blocks
+end
+
+-- Slot of the 高架下駅舎: ground level, centred under all elevated rows of the segment.
+function layout.underViaductSlotTransf(L, seg)
+	local blocks = layout.elevatedBlocks(L, seg)
+	if not blocks[1] then return nil end
+	local a, b = blocks[1].first, blocks[#blocks].last
+	local x0 = layout.centre(L, a) - layout.width(L, a) / 2
+	local x1 = layout.centre(L, b) + layout.width(L, b) / 2
+	return transf.transl(vec3.new((x0 + x1) / 2, layout.segY(seg), 0)), (x1 - x0) / 2
 end
 
 function layout.concourseSlotTransf(L, seg)

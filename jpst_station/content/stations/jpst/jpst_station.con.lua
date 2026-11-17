@@ -104,7 +104,7 @@ function data()
 						{
 							key = "jpst_passage",
 							name = _("JPST_PARAM_PASSAGE"),
-							values = { _("JPST_PASSAGE_UNDERPASS"), _("JPST_PASSAGE_CONCOURSE") },
+							values = { _("JPST_PASSAGE_UNDERPASS"), _("JPST_PASSAGE_CONCOURSE"), _("JPST_PASSAGE_UNDERVIADUCT") },
 							defaultIndex = 1, -- underpass
 							displayMode = "Horizontal",
 						},

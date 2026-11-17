@@ -9,6 +9,14 @@ local config = {
 	},
 	endModel = "::/stations/rail/era_c/perron_10_end.mdl",
 	borderModel = "::/stations/rail/era_c/perron_5_border.mdl",
+	signs = {
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -10, z = 1.1 },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 0, z = 1.1 },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 10, z = 1.1 },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -10, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 10, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = 0.235, z = 3.5, label = "number" },
+	},
 }
 
 function data()
