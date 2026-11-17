@@ -1249,3 +1249,108 @@ do
 	end
 	print((turns > 0 and "" or "FAIL ") .. "elevated stair turn nodes seg0", turns)
 end
+
+-- 17) catenary without poles: template option 3 -> no-pole track modules on the hidden track type
+do
+	print("== 17 no-pole catenary")
+	for lvl = 1, 2 do
+		local m = script.createTemplateFn({}, { jpst_length = 3, jpst_trackType = 2, jpst_catenary = 3, jpst_level = lvl })
+		local n = 0
+		for _, name in pairs(m) do if name:find("_catenary_nopole", 1, true) then n = n + 1 end end
+		if n == 0 then print("FAIL nopole template level", lvl) end
+		local r = build({ modulesByName = m })
+		local ok = false
+		for i, el in ipairs(r.edgeLists) do
+			if el.type == "TRACK" then
+				if el.params.type:find("jpst_track/standard_catenary_nopole.street_template", 1, true) and r.edgeListHasCatenary[i] then ok = true
+				else print("FAIL nopole edge list", el.params.type, tostring(r.edgeListHasCatenary[i])) end
+			end
+		end
+		print((ok and "" or "FAIL ") .. "nopole edges level " .. lvl, n)
+		-- catenary removal leads to the plain track; the no-pole module offers no catenaryAdd
+		local md = MODULE_META[layout.trackModuleName("standard", true, lvl == 2 and E or G, true)]
+		if not md or md.catenaryAdd or not (md.catenaryRemove or ""):find(layout.trackModuleFile("standard", false, lvl == 2 and E or G) .. ".module", 1, true) then
+			print("FAIL nopole metadata", md and md.catenaryRemove)
+		end
+	end
+	-- the hidden track type files exist and keep the wires
+	for _, t in ipairs(layout.TRACK_TYPES) do
+		local f = io.open("jpst_station/content/infrastructure/jpst_track/" .. t .. "_nopole.street.lua")
+		local s = f and f:read("a") or ""
+		if f then f:close() end
+		if not s:find("catenaryMaterial", 1, true) or s:find("power_pole", 1, true) then print("FAIL nopole street style", t) end
+	end
+end
+
+-- 18) platform roofs (上家): template middle/full/none, per-5 m strips, end pieces, level handling
+do
+	print("== 18 platform roofs")
+	local ROOF_MDL = "::/stations/rail/era_c/perron_5_roof.mdl"
+	local ROOF_END = "::/stations/rail/era_c/perron_5_roof_end.mdl"
+	local function count(r, id, zMin)
+		local n = 0
+		for _, mdl in ipairs(r.cargoStation.models) do
+			if mdl.id == id and (zMin == nil or mdl.transf[15] >= zMin) then n = n + 1 end
+		end
+		return n
+	end
+	local function roofSlots(r)
+		local n = 0
+		for _, s in ipairs(r.slots) do if s.type == "jpst_roof" then n = n + 1 end end
+		return n
+	end
+	-- 5 x 40 m, 2 tracks, one 10 m island: middle = whole (<= 200 m), 2 strips each
+	for _, case in ipairs({ { 1, 0, 0 }, { 2, 5, 2 }, { 3, 5, 2 } }) do
+		local idx, segs, ends = case[1], case[2], case[3]
+		for lvl = 1, 2 do
+			local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = idx, jpst_level = lvl, jpst_platformWidth = 2 })
+			local r = build({ modulesByName = m })
+			local z = (lvl == 2) and layout.ELEVATED_Z or 0
+			local nr, ne = count(r, ROOF_MDL, z), count(r, ROOF_END, z)
+			local ok = nr == segs * 2 and ne == ends * 2 and roofSlots(r) == 5
+			print((ok and "" or "FAIL ") .. "roof option " .. idx .. " level " .. lvl, nr, ne, roofSlots(r))
+			check("roof option " .. idx .. " level " .. lvl, r)
+		end
+	end
+	-- gap in the middle: removing the centre roof adds two more end pieces; a roof without a platform is ignored
+	local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = 3, jpst_platformWidth = 1 })
+	local rid
+	for id, name in pairs(m) do
+		local k, _, _, seg = layout.decode(id)
+		if k == layout.KIND.ROOF and seg == 0 then rid = id end
+	end
+	m[rid] = nil
+	local stray = layout.encode(layout.KIND.ROOF, layout.LEVEL.GROUND, 5, 0)
+	m[stray] = m[layout.encode(layout.KIND.ROOF, layout.LEVEL.GROUND, 0, 1)]
+	local r = build({ modulesByName = m })
+	local nr, ne = count(r, ROOF_MDL), count(r, ROOF_END)
+	print(((nr == 4 and ne == 4) and "" or "FAIL ") .. "roof gap 5 m", nr, ne)
+	if not r.jpst.layout.ignored[stray] then print("FAIL stray roof not ignored") end
+	check("roof gap", r)
+	-- lightpoles only on roofless segments: 5 segments, middle roof covers all, full none -> 0; no roof -> 5 x 4
+	for _, case in ipairs({ { 1, 20 }, { 2, 0 } }) do
+		local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = case[1] })
+		local r = build({ modulesByName = m })
+		local np = 0
+		for _, md in ipairs(r.cargoStation.models) do
+			if md.id:find("lightpole") then np = np + 1 end
+		end
+		print((np == case[2] and "" or "FAIL ") .. "lightpoles roof " .. case[1], np, "want", case[2])
+	end
+	-- middle roof is symmetric for every length
+	for len = 1, 8 do
+		local mm = script.createTemplateFn({}, { jpst_length = len, jpst_tracks = 2, jpst_roof = 2 })
+		local lo, hi
+		for id in pairs(mm) do
+			local k, _, _, seg = layout.decode(id)
+			if k == layout.KIND.ROOF then
+				lo = math.min(lo or seg, seg)
+				hi = math.max(hi or seg, seg)
+			end
+		end
+		local ps = -math.floor(len / 2)
+		local pe = ps + len - 1
+		local ok = lo ~= nil and (lo - ps) == (pe - hi)
+		print((ok and "" or "FAIL ") .. "middle roof len " .. len, lo, hi, ps, pe)
+	end
+end

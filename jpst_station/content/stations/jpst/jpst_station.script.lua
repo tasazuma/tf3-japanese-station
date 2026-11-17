@@ -18,6 +18,8 @@ local function brickBuildingName(size)
 end
 local CONCOURSE = layout.moduleName("jpst_concourse")
 local UNDER_VIADUCT = layout.moduleName("jpst_underviaduct_pillars")
+local ROOF = layout.moduleName("jpst_roof_era_c")
+local ROOF_SLOT_Z = 4 -- roof slots float at roof height so they do not hide the platform slot
 
 local DEFAULT_CATCHMENT_RADIUS = 150
 
@@ -63,20 +65,34 @@ local function createTemplateFn(captureParams, params)
 	local n = paramIndex(params.jpst_length, 3, LENGTH_COUNT)
 	local nTracks = paramIndex(params.jpst_tracks, 2, MAX_TRACKS)
 	local typeIdx = paramIndex(params.jpst_trackType, 2, #layout.TRACK_TYPES)
-	local catenary = paramIndex(params.jpst_catenary, 2, 2) == 2
+	-- 1 = none, 2 = yes, 3 = yes without poles
+	local catenaryIdx = paramIndex(params.jpst_catenary, 2, 3)
+	local catenary = catenaryIdx >= 2
 	local level = (paramIndex(params.jpst_level, 1, 2) == 2) and layout.LEVEL.ELEVATED or GROUND
 	local sidePlatforms = paramIndex(params.jpst_platformLayout, 1, 2) == 2
 	local platformWidth = PLATFORM_WIDTHS[paramIndex(params.jpst_platformWidth, 2, #PLATFORM_WIDTHS)]
-	local trackName = layout.trackModuleName(layout.TRACK_TYPES[typeIdx], catenary, level)
+	local trackName = layout.trackModuleName(layout.TRACK_TYPES[typeIdx], catenary, level, catenaryIdx == 3)
 	-- 2F concourse is only for ground stations (it would cut through a viaduct)
 	local passage = paramIndex(params.jpst_passage, 1, 3)
 	local concourse = level == GROUND and passage == 2
 	-- 高架下駅舎 is only for elevated stations
 	local underViaduct = level == layout.LEVEL.ELEVATED and passage == 3
 
+	-- 1 = none, 2 = about half in the middle, 3 = whole length
+	-- the middle roof keeps the parity of n so it sits symmetrically (segments are 40 m, no half steps)
+	local roofIdx = paramIndex(params.jpst_roof, 2, 3)
+	local roofN = 0
+	if roofIdx == 3 then
+		roofN = n
+	elseif roofIdx == 2 then
+		-- like vanilla: whole platform up to 200 m (5 segments), longer ones leave 40 m open at each end
+		roofN = (n <= 5) and n or (n - 2)
+	end
+
 	local result = {}
 	local s = -math.floor(n / 2)
 	local e = s + n - 1
+	local roofS = s + math.floor((n - roofN) / 2)
 	local function hasStairs(j)
 		if concourse then return false end
 		return j == 0 or (n >= 5 and (j == s + 1 or j == e - 1))
@@ -90,6 +106,9 @@ local function createTemplateFn(captureParams, params)
 				result[layout.encode(KIND.TRACK, level, row, j)] = trackName
 			else
 				result[layout.encode(KIND.PLATFORM, level, row, j)] = platformName(level, hasStairs(j), platformWidth)
+				if j >= roofS and j < roofS + roofN then
+					result[layout.encode(KIND.ROOF, level, row, j)] = ROOF
+				end
 			end
 		end
 	end
@@ -209,6 +228,17 @@ local function addSlots(result, L, modules)
 		local half = (xR - xL) / 2 + 4
 		addSlot(layout.encode(KIND.CONCOURSE, GROUND, 0, seg), layout.concourseSlotTransf(L, seg),
 			layout.SLOT_TYPE[KIND.CONCOURSE], { half, half, layout.CONCOURSE_HALF_WIDTH, layout.CONCOURSE_HALF_WIDTH })
+	end
+
+	-- Platform roofs (上家): one slot over every platform cell; zero spacing like vanilla roof slots,
+	-- so they never collide with the platform/track slots underneath
+	for row, segs in pairs(L.cells) do
+		for seg, c in pairs(segs) do
+			if c.kind == KIND.PLATFORM then
+				local tf = transf.mul(transf.transl(vec3.new(0, 0, ROOF_SLOT_Z)), layout.slotTransf(L, row, seg, c.level))
+				addSlot(layout.encode(KIND.ROOF, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.ROOF], { 0, 0, 0, 0 })
+			end
+		end
 	end
 
 	-- 高架下駅舎: ground level under the elevated rows of a segment (10 m below the elevated slots)

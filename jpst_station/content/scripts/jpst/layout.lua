@@ -16,7 +16,7 @@ layout.CONCOURSE_Z = 9 -- 2F concourse floor over ground tracks
 layout.CONCOURSE_HALF_WIDTH = 5
 layout.BRIDGE_TYPE = "::/infrastructure/bridge/concrete.bridge"
 
-layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6 }
+layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6, ROOF = 7 }
 layout.LEVEL = { GROUND = 0, ELEVATED = 1 } -- 2..9 reserved (underground etc.)
 layout.LEVEL_Z = { [0] = 0, [1] = layout.ELEVATED_Z }
 layout.LEVEL_SUFFIX = { [0] = "", [1] = "_elevated" }
@@ -39,11 +39,13 @@ layout.SLOT_TYPE = {
 	[4] = "jpst_concourse",
 	[5] = "jpst_forecourt",
 	[6] = "jpst_underviaduct",
+	[7] = "jpst_roof", -- platform roof (上家); same slot type on every level
 }
 
 -- Track/platform slot types differ per level so the module picker only shows matching slots.
 function layout.slotType(kind, level)
-	if kind == layout.KIND.BUILDING or kind == layout.KIND.CONCOURSE or kind == layout.KIND.UNDER then
+	if kind == layout.KIND.BUILDING or kind == layout.KIND.CONCOURSE or kind == layout.KIND.UNDER
+		or kind == layout.KIND.ROOF then
 		return layout.SLOT_TYPE[kind]
 	end
 	return layout.SLOT_TYPE[kind] .. (layout.LEVEL_SUFFIX[level] or "")
@@ -128,13 +130,14 @@ function layout.trackTemplate(typeName, catenary)
 	return "::/infrastructure/track/" .. typeName .. "/" .. typeName .. (catenary and "_catenary" or "") .. ".street_template"
 end
 
-function layout.trackModuleFile(typeName, catenary, level)
+-- noPole: electrified track whose catenary poles are invisible (wires only); ignored without catenary
+function layout.trackModuleFile(typeName, catenary, level, noPole)
 	local prefix = (level == layout.LEVEL.ELEVATED) and "jpst_track_elevated_" or "jpst_track_"
-	return prefix .. typeName .. (catenary and "_catenary" or "")
+	return prefix .. typeName .. (catenary and "_catenary" or "") .. ((catenary and noPole) and "_nopole" or "")
 end
 
-function layout.trackModuleName(typeName, catenary, level)
-	return layout.moduleName(layout.trackModuleFile(typeName, catenary, level))
+function layout.trackModuleName(typeName, catenary, level, noPole)
+	return layout.moduleName(layout.trackModuleFile(typeName, catenary, level, noPole))
 end
 
 -- Build the grid description from params.modules.
@@ -149,6 +152,7 @@ function layout.compute(modules)
 		buildingAt = { [0] = {}, [1] = {} }, -- buildingAt[side][seg] = slotId of the building covering it
 		concourses = {}, -- [seg] = slotId (one per segment)
 		underViaducts = {}, -- [seg] = slotId of the 高架下駅舎 (one per segment, needs an elevated row)
+		roofs = {},      -- roofs[row][seg] = slotId of the platform roof (needs a platform on the same level)
 		forecourts = {}, -- [slotId] = { module, level, side, d, w, h, seg } (level 0 = 1F plaza, 1 = deck)
 		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
 		deckAt = { [0] = {}, [1] = {} },      -- deckAt[side][d][seg] = slotId (deck, level 1)
@@ -198,6 +202,15 @@ function layout.compute(modules)
 			L.concourses[seg] = id
 		elseif kind == layout.KIND.UNDER and level == layout.LEVEL.GROUND and L.underViaducts[seg] == nil then
 			L.underViaducts[seg] = id
+		elseif kind == layout.KIND.ROOF then
+			-- ids sort by kind, so every platform cell is known here
+			local c = L.cells[row] and L.cells[row][seg]
+			if c and c.kind == layout.KIND.PLATFORM and c.level == level then
+				L.roofs[row] = L.roofs[row] or {}
+				L.roofs[row][seg] = id
+			else
+				L.ignored[id] = true
+			end
 		else
 			L.ignored[id] = true
 		end
@@ -334,6 +347,10 @@ end
 function layout.isPlatform(L, row, seg)
 	local c = layout.get(L, row, seg)
 	return c ~= nil and c.kind == layout.KIND.PLATFORM
+end
+
+function layout.hasRoof(L, row, seg)
+	return L.roofs[row] ~= nil and L.roofs[row][seg] ~= nil
 end
 
 function layout.width(L, row)

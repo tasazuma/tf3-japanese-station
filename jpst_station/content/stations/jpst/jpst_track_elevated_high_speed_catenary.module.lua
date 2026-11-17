@@ -22,6 +22,7 @@ function data()
 			jpst_level = "elevated",
 			jpst_trackTemplate = "::/infrastructure/track/high_speed/high_speed_catenary.street_template",
 			jpst_catenary = true,
+			jpst_noPole = false,
 			catenaryAdd = nil,
 			catenaryRemove = "jpst_station::/stations/jpst/jpst_track_elevated_high_speed.module",
 			price = 180000,

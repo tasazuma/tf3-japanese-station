@@ -90,8 +90,15 @@ function data()
 						{
 							key = "jpst_catenary",
 							name = _("JPST_PARAM_CATENARY"),
-							values = { _("JPST_NO"), _("JPST_YES") },
+							values = { _("JPST_NO"), _("JPST_YES"), _("JPST_CATENARY_NOPOLE") },
 							defaultIndex = 2, -- yes
+							displayMode = "Horizontal",
+						},
+						{
+							key = "jpst_roof",
+							name = _("JPST_PARAM_ROOF"),
+							values = { _("JPST_NO"), _("JPST_ROOF_MIDDLE"), _("JPST_ROOF_FULL") },
+							defaultIndex = 2, -- middle
 							displayMode = "Horizontal",
 						},
 						{

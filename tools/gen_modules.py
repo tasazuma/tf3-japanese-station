@@ -4,6 +4,8 @@
 Run from anywhere:  python3 tools/gen_modules.py
 Edit the tables below and re-run instead of editing the generated files by hand.
 """
+import re
+import zipfile
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "jpst_station/content/stations/jpst"
@@ -14,6 +16,16 @@ ERA_A = "::/stations/rail/era_a/"
 SEG_LEN = 40
 MAX_BUILDING_SEGS = 8
 AUDIO = "::/gui/construction/sound/buildoze_module.builder_audio"
+
+CONTENT = OUT.parent.parent
+GAME_CONTENT = Path.home() / "Library/Application Support/Steam/steamapps/common/Transport Fever 3/base/content"
+NOPOLE_DIR = "infrastructure/jpst_track"
+INVISIBLE_MODEL = "jpst_station::/infrastructure/jpst_track/invisible.mdl"
+
+
+def nopole_template(t):
+    return f"jpst_station::/{NOPOLE_DIR}/{t}_catenary_nopole.street_template"
+
 
 HEADER = '''local vec3 = require "::/scripts/vec3.tl"
 local transf = require "::/scripts/mat4.tl"
@@ -47,8 +59,8 @@ def lua_str_or_nil(s):
     return f'"{s}"' if s else "nil"
 
 
-def track_file(t, cat, infix):
-    return f"jpst_track_{infix}{t}{'_catenary' if cat else ''}"
+def track_file(t, cat, infix, nopole=False):
+    return f"jpst_track_{infix}{t}{'_catenary' if cat else ''}{'_nopole' if nopole else ''}"
 
 
 def write(name, text):
@@ -60,20 +72,23 @@ def gen_tracks():
         factor = ELEVATED_PRICE_FACTOR if level == "elevated" else 1
         for t, order, price in TRACK_TYPES:
             price *= factor
-            for cat in (False, True):
+            for cat, nopole in ((False, False), (True, False), (True, True)):
                 other = MOD + track_file(t, not cat, infix) + ".module"
                 c = "_catenary" if cat else ""
-                tmpl = f"::/infrastructure/track/{t}/{t}{c}.street_template"
-                write(track_file(t, cat, infix), HEADER + f'''function data()
+                tmpl = nopole_template(t) if nopole else f"::/infrastructure/track/{t}/{t}{c}.street_template"
+                key = f"{t.upper()}{c.upper()}{'_NOPOLE' if nopole else ''}"
+                # no-pole tracks are electrified only; adding catenary to the bare track gives the normal poles
+                add = None if cat else other
+                write(track_file(t, cat, infix, nopole), HEADER + f'''function data()
 	return {{
 		availability = {{ yearFrom = 0, yearTo = 0 }},
 		menuCategory = {{
 			categories = {{
-				{{ category = "modules_tracks", order = {order_off + order * 10 + (1 if cat else 0)} }},
+				{{ category = "modules_tracks", order = {order_off + order * 10 + (1 if cat else 0) + (1 if nopole else 0)} }},
 			}},
 		}},
 		description = {{
-			name = _("JPST_TRACK_{str_infix}{t.upper()}{c.upper()}_NAME"),
+			name = _("JPST_TRACK_{str_infix}{key}_NAME"),
 			description = _("JPST_TRACK_{str_infix}DESC"),
 			icon = "::/infrastructure/track/{t}/{t}{c}.tga",
 			previewIcon = "::/infrastructure/track/{t}/{t}{c}_preview.tga",
@@ -85,7 +100,8 @@ def gen_tracks():
 			jpst_level = "{level}",
 			jpst_trackTemplate = "{tmpl}",
 			jpst_catenary = {lua_bool(cat)},
-			catenaryAdd = {lua_str_or_nil(None if cat else other)},
+			jpst_noPole = {lua_bool(nopole)},
+			catenaryAdd = {lua_str_or_nil(add)},
 			catenaryRemove = {lua_str_or_nil(other if cat else None)},
 			price = {price},
 			maintenanceCost = {price // 10},
@@ -107,15 +123,70 @@ end
 ''')
 
 
+INVISIBLE_MDL = '''function data()
+return {
+	boundingInfo = { bbMax = { 0.1, 0.1, 0.1 }, bbMin = { -0.1, -0.1, 0 } },
+	-- same shape as the vanilla stations/air/misc/invisible.mdl, with a tiny collider
+	collider = { params = { halfExtents = { 0.05, 0.05, 0.05 } }, transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 }, type = "BOX" },
+	lods = {
+		{
+			node = { name = "RootNode", transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 } },
+			visibleFrom = 0,
+			visibleTo = 1,
+		},
+	},
+	metadata = {},
+	version = 2,
+}
+end
+'''
+
+
+def gen_nopole_track_types():
+    """Hidden station-only copies of the vanilla electrified tracks whose catenary poles are invisible
+    (the wires stay). Generated from the game files; the output is committed, so this only needs the
+    game when the vanilla tracks change."""
+    zpath = GAME_CONTENT / "infrastructure/track.zip"
+    out = CONTENT / NOPOLE_DIR
+    if not zpath.exists():
+        print("skip no-pole track types (game not found):", zpath)
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "invisible.mdl").write_text(INVISIBLE_MDL)
+    with zipfile.ZipFile(zpath) as z:
+        for t in TRACK_TYPES:
+            t = t[0]
+            base = f"::/infrastructure/track/{t}/"
+            style = z.read(f"track/{t}/{t}.street.lua").decode()
+            style = re.sub(r'(catenary(?:Multi(?:Girder|InnerPole|Pole)|Pole)Model\s*=\s*)"[^"]*"',
+                           lambda m: f'{m.group(1)}"{INVISIBLE_MODEL}"', style)
+            # the copy lives elsewhere, so the vanilla-relative model/material names need absolute paths
+            style = re.sub(r'"(?!::/|jpst_station::/)([^"]+\.(?:mdl|mtl))"', lambda m: f'"{base}{m.group(1)}"', style)
+            (out / f"{t}_nopole.street.lua").write_text(HEADER_COMMENT + style)
+            tmpl = z.read(f"track/{t}/{t}_catenary.street_template.lua").decode()
+            tmpl = re.sub(r"availability\s*=\s*\{[^}]*\}", "availability = { yearFrom = 100000, yearTo = 0 }", tmpl)
+            tmpl = re.sub(r"menuCategory\s*=\s*\{.*?\n\t\t\},\n", "menuCategory = { categories = {} },\n", tmpl,
+                          flags=re.S)
+            tmpl = re.sub(r'streetStyle\s*=\s*"[^"]*"', f'streetStyle = "jpst_station::/{NOPOLE_DIR}/{t}_nopole.street"',
+                          tmpl)
+            (out / f"{t}_catenary_nopole.street_template.lua").write_text(HEADER_COMMENT + tmpl)
+
+
+HEADER_COMMENT = "-- Generated by tools/gen_modules.py from the vanilla track; do not edit by hand.\n"
+
+
 # Platform furniture in the platform frame (x across, y along -20..20, z above the track bed).
+# roofless = true: only placed when the platform segment has no roof (like vanilla lightpoles).
 # label = "number" gets the track numbers (labels 1-2: track on -X, 3-4: track on +X), "name" the station name.
 SIGNS = """	signs = {
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -10, z = 1.1 },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 0, z = 1.1 },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 10, z = 1.1 },
-		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -10, z = 2.5, label = "name" },
-		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 10, z = 2.5, label = "name" },
-		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = 0.235, z = 3.5, label = "number" },
+		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairs (|y| < 6.5)
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -15, z = 1.1, roofless = true },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -7.5, z = 1.1, roofless = true },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 7.5, z = 1.1, roofless = true },
+		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 15, z = 1.1, roofless = true },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -15, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 15, z = 2.5, label = "name" },
+		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = -7.265, z = 3.5, label = "number" },
 	},
 """
 
@@ -652,9 +723,65 @@ end
 ''')
 
 
+ROOF_ERAS = [
+    # vanilla model era, price
+    ("a", 20000),
+    ("b", 25000),
+    ("c", 30000),
+]
+
+
+def gen_roofs():
+    for i, (era, price) in enumerate(ROOF_ERAS):
+        base = f"::/stations/rail/era_{era}/"
+        params = f'''{{
+				roofModel = "{base}perron_5_roof.mdl",
+				endModel = "{base}perron_5_roof_end.mdl",
+			}}'''
+        key = era.upper()
+        write(f"jpst_roof_era_{era}", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = {150 + i} }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_ROOF_{key}_NAME"),
+			description = _("JPST_ROOF_DESC"),
+			icon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}.tga",
+			previewIcon = "::/stations/rail/modular_station/platform_passenger_roof_era_{era}_preview@2x.tga",
+			attributes = {{
+				cost = {{ {price}, -1 }},
+				maintenanceCost = {{ {price // 10}, -1 }},
+			}},
+		}},
+		type = "jpst_roof",
+		metadata = {{
+			jpst_roof = true,
+			price = {price},
+			maintenanceCost = {price // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@roof.updateFn",
+			params = {params},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@roof.getModelsFn",
+			params = {params},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
 if __name__ == "__main__":
+    gen_nopole_track_types()
     gen_tracks()
     gen_platforms()
+    gen_roofs()
     gen_building()
     gen_brick_buildings()
     gen_concourse()

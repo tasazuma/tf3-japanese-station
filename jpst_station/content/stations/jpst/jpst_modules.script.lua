@@ -148,10 +148,13 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	for _, m in ipairs(cfg.models) do
 		addModelTo(cs.models, m.id, transform, lift(perronTransf(m.x), z), tag)
 	end
+	local roofed = layout.hasRoof(L, row, seg)
 	for _, s in ipairs(cfg.signs or {}) do
-		-- labelText is keyed by the 0-based index into cargoStation.models; the hook fills it
-		if s.label then table.insert(J.signs, { index = #cs.models, label = s.label, row = row, seg = seg }) end
-		addModelTo(cs.models, s.id, transform, lift(signTransf(s), z), tag)
+		if not (s.roofless and roofed) then
+			-- labelText is keyed by the 0-based index into cargoStation.models; the hook fills it
+			if s.label then table.insert(J.signs, { index = #cs.models, label = s.label, row = row, seg = seg }) end
+			addModelTo(cs.models, s.id, transform, lift(signTransf(s), z), tag)
+		end
 	end
 	-- neighbours must share the level to count (rows are single-level, so checking the row is enough)
 	if not layout.isPlatform(L, row, seg - 1) then
@@ -225,6 +228,52 @@ local function getModelsPlatform(captureParams, params)
 	table.insert(res, { id = captureParams.endModel, transf = transf.rotZTransl(math.rad(90), vec3.new(0, 20, 0)) })
 	for _, s in ipairs(captureParams.signs or {}) do
 		table.insert(res, { id = s.id, transf = signTransf(s) })
+	end
+	return res
+end
+
+-- Platform roof (上家) ---------------------------------------------------------
+-- Vanilla perron_5_roof models are 40 m long and cover a 5 m platform, so wider platforms get one per 5 m.
+-- An end piece closes the roof where the next segment of the same platform has no roof.
+-- params: roofModel, endModel (optional)
+
+local function roofXs(w)
+	local xs = {}
+	local n = math.max(1, math.floor(w / 5 + 0.5))
+	for k = 0, n - 1 do xs[#xs + 1] = -w / 2 + 2.5 + 5 * k end
+	return xs
+end
+
+local function updateRoof(captureParams, result, transform, tag, slotId, addModel, constrParams)
+	local L = result.jpst.layout
+	if L.ignored[slotId] then return end
+	local cfg = captureParams or {}
+	local _, level, row, seg = layout.decode(slotId)
+	local z = (level == ELEVATED) and EZ or 0
+	local cs = result.cargoStation
+	local T = layout.slotTransf(L, row, seg, layout.LEVEL.GROUND)
+	local closeMinus = cfg.endModel and not layout.hasRoof(L, row, seg - 1)
+	local closePlus = cfg.endModel and not layout.hasRoof(L, row, seg + 1)
+	for _, x in ipairs(roofXs(layout.width(L, row))) do
+		if cfg.roofModel then
+			addModelTo(cs.models, cfg.roofModel, T, lift(perronTransf(x), z), tag)
+		end
+		if closeMinus then
+			addModelTo(cs.models, cfg.endModel, T, lift(transf.rotZTransl(math.rad(-90), vec3.new(x, -20, 0)), z), tag)
+		end
+		if closePlus then
+			addModelTo(cs.models, cfg.endModel, T, lift(transf.rotZTransl(math.rad(90), vec3.new(x, 20, 0)), z), tag)
+		end
+	end
+end
+
+local function getModelsRoof(captureParams, params)
+	local cfg = captureParams or {}
+	local res = {}
+	if cfg.roofModel then table.insert(res, { id = cfg.roofModel, transf = perronTransf(0) }) end
+	if cfg.endModel then
+		table.insert(res, { id = cfg.endModel, transf = transf.rotZTransl(math.rad(-90), vec3.new(0, -20, 0)) })
+		table.insert(res, { id = cfg.endModel, transf = transf.rotZTransl(math.rad(90), vec3.new(0, 20, 0)) })
 	end
 	return res
 end
@@ -951,6 +1000,10 @@ function data()
 		platform = {
 			updateFn = updatePlatform,
 			getModelsFn = getModelsPlatform,
+		},
+		roof = {
+			updateFn = updateRoof,
+			getModelsFn = getModelsRoof,
 		},
 		building = {
 			updateFn = updateBuilding,
