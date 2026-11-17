@@ -13,8 +13,30 @@ local PILLAR_MODEL = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl
 local TERMINAL_LANE_WIDTH = 2.4
 local LANE_WIDTH = 3
 
+-- column-major 4x4 product a * b on plain tables or mat4 values
+local function mul16(a, b)
+	local r = {}
+	for c = 0, 3 do
+		for i = 1, 4 do
+			r[c * 4 + i] = a[i] * b[c * 4 + 1] + a[4 + i] * b[c * 4 + 2] + a[8 + i] * b[c * 4 + 3] + a[12 + i] * b[c * 4 + 4]
+		end
+	end
+	return r
+end
+
 local function addModelTo(list, id, transform, localTransf, tag)
-	table.insert(list, { id = id, transf = transf.mul(transform, localTransf), tag = tag })
+	table.insert(list, { id = id, transf = mul16(transform, localTransf), tag = tag })
+end
+
+-- The vanilla pier piece c_pillar_small_rep_m (x +-1.056, y 0..3, z 0..4) only has its two +-X faces
+-- (the end caps are separate pieces), so a closed vertical box is two of them crossed at 90 degrees.
+local PILLAR_SECTION, PILLAR_LENGTH, PILLAR_HEIGHT = 2.112, 3, 4
+local function addColumn(cs, transform, x0, x1, y0, y1, z0, z1, tag)
+	local sx, sy, sz = x1 - x0, y1 - y0, (z1 - z0) / PILLAR_HEIGHT
+	addModelTo(cs.models, PILLAR_MODEL, transform,
+		{ sx / PILLAR_SECTION, 0, 0, 0, 0, sy / PILLAR_LENGTH, 0, 0, 0, 0, sz, 0, (x0 + x1) / 2, y0, z0, 1 }, tag)
+	addModelTo(cs.models, PILLAR_MODEL, transform,
+		{ 0, sy / PILLAR_SECTION, 0, 0, -sx / PILLAR_LENGTH, 0, 0, 0, 0, 0, sz, 0, x1, (y0 + y1) / 2, z0, 1 }, tag)
 end
 
 -- perron models run along local X (0..40); rotate so they run along Y (-20..20)
@@ -73,17 +95,10 @@ local function addConcourse(cs, transform, rowWidth, cx)
 	layout.addLane(cs, { { cx, -8, 0 }, { cx, -4, -2 }, { cx, 0, UZ } }, LANE_WIDTH, false, transform)
 end
 
--- Stand-in viaduct under an elevated platform: stretched concrete bridge deck plus two piers.
--- A 高架下駅舎 in the segment brings its own column grid, so the stand-in piers are left out there.
-local function addViaduct(cs, transform, w, tag, noPiers)
+-- Stand-in viaduct deck under an elevated platform (the tracks get theirs from the bridge edges).
+local function addViaduct(cs, transform, w, tag)
 	local deck = transf.scaleXYZRotZTransl(vec3.new(40 / 6, w / 4, 1), math.rad(90), vec3.new(w / 2, -20, EZ))
 	addModelTo(cs.models, DECK_MODEL, transform, deck, tag)
-	if noPiers then return end
-	local pierH = EZ - DECK_DEPTH
-	for _, y in ipairs({ -12, 12 }) do
-		local pier = transf.scaleXYZRotZTransl(vec3.new(1, 1, pierH / 4), math.rad(90), vec3.new(1.5, y, 0))
-		addModelTo(cs.models, PILLAR_MODEL, transform, pier, tag)
-	end
 end
 
 -- Track ---------------------------------------------------------------------
@@ -174,7 +189,7 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	end
 
 	if elevated then
-		addViaduct(cs, transform, w, tag, L.underViaducts[seg] ~= nil)
+		addViaduct(cs, transform, w, tag)
 		addBox(cs, transform, -w / 2, -20, w / 2, 20, 3, "EQUAL", layout.GROUND_MODES_PLATFORM, EZ)
 	else
 		addBox(cs, transform, -w / 2, -20, w / 2, 20, 6, "EQUAL", layout.GROUND_MODES_PLATFORM)
@@ -413,8 +428,7 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 	local pierH = CZ - DECK_DEPTH
 	local function pier(x)
 		for _, y in ipairs({ -CHW + 1.5, CHW - 1.5 }) do
-			local t = transf.scaleXYZRotZTransl(vec3.new(1, 1, pierH / 4), math.rad(90), vec3.new(x + 1.5, y, 0))
-			addModelTo(cs.models, PILLAR_MODEL, T, t, tag)
+			addColumn(cs, T, x - 1, x + 1, y - 1, y + 1, 0, pierH, tag)
 		end
 	end
 
@@ -480,9 +494,11 @@ end
 -- the viaduct columns). The ground lanes under the viaduct come from the elevated cells (cross lane at
 -- y=0); this module adds a public street exit on every outer side of the station that has no building,
 -- so an elevated station works without a side building. The look comes from params (skins):
---   columns = { id, rotZ, scale = { sx, sy, sz }, offset = { x, y }, ys = { ... }, minGap }: a column at
---             every ys (segment-local Y) on both outer edges of each elevated block and on inner row
---             boundaries at least minGap apart;
+--   columns = { models = { { id, transf }, ... }, ys = { ... }, minGap }: a column (its models relative to
+--             the column foot) at every ys (segment-local Y) on both outer edges of each elevated block and
+--             on inner row boundaries at least minGap apart;
+--   beams = { models = { { id, transf }, ... }, ys }: a transverse beam per ys across each elevated block;
+--             its models span X 0..1 (stretched to the block width) and hang from the deck bottom (z = 0);
 --   exitModels = models at every street exit, building frame: origin at the row edge (segment centre),
 --             +X along the tracks, -Y out of the station;
 --   hallModels = models per elevated block, relative to its centre (station X, segment-local Y).
@@ -492,6 +508,18 @@ local UNDER_COLUMN_INSET = 0.5
 
 local function underBlockEdges(L, b)
 	return layout.centre(L, b.first) - layout.width(L, b.first) / 2, layout.centre(L, b.last) + layout.width(L, b.last) / 2
+end
+
+-- { models = { { id =, transf = }, ... } } or a single { id =, transf = | rotZ =, scale =, offset = }
+local function skinParts(spec)
+	if spec.models then return spec.models end
+	if not spec.id then return {} end
+	local t = spec.transf
+	if not t then
+		local sc, off = spec.scale or { 1, 1, 1 }, spec.offset or { 0, 0 }
+		t = transf.scaleXYZRotZTransl(vec3.new(sc[1], sc[2], sc[3]), math.rad(spec.rotZ or 0), vec3.new(off[1], off[2], 0))
+	end
+	return { { id = spec.id, transf = t } }
 end
 
 local function updateUnderViaduct(captureParams, result, transform, tag, slotId, addModel, constrParams)
@@ -508,25 +536,23 @@ local function updateUnderViaduct(captureParams, result, transform, tag, slotId,
 		local x0, x1 = underBlockEdges(L, b)
 
 		local col = cfg.columns
-		if col and col.id then
-			local xs = { x0 + UNDER_COLUMN_INSET }
-			local minGap = col.minGap or 6
-			local last = xs[1]
-			for row = b.first, b.last - 1 do
-				local xb = layout.centre(L, row) + layout.width(L, row) / 2
-				if xb - last >= minGap and x1 - xb >= minGap then
-					table.insert(xs, xb)
-					last = xb
+		local ys = (col and col.ys) or layout.VIADUCT_FRAME_YS
+		if col then
+			local xs = layout.viaductColumnXs(L, b, UNDER_COLUMN_INSET, col.minGap or 6)
+			for _, part in ipairs(skinParts(col)) do
+				for _, x in ipairs(xs) do
+					for _, y in ipairs(ys) do
+						addModelTo(cs.models, part.id, T, mul16(transf.transl(vec3.new(x, y, 0)), part.transf), tag)
+					end
 				end
 			end
-			table.insert(xs, x1 - UNDER_COLUMN_INSET)
-			local sc = col.scale or { 1, 1, 1 }
-			local off = col.offset or { 0, 0 }
-			for _, x in ipairs(xs) do
-				for _, y in ipairs(col.ys or { -15, -5, 5, 15 }) do
-					local t = transf.scaleXYZRotZTransl(vec3.new(sc[1], sc[2], sc[3]), math.rad(col.rotZ or 0),
-						vec3.new(x + off[1], y + off[2], 0))
-					addModelTo(cs.models, col.id, T, t, tag)
+		end
+		local beams = cfg.beams
+		if beams then
+			for _, part in ipairs(skinParts(beams)) do
+				for _, y in ipairs(beams.ys or ys) do
+					local S = { x1 - x0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x0, y, EZ - DECK_DEPTH, 1 }
+					addModelTo(cs.models, part.id, T, mul16(S, part.transf), tag)
 				end
 			end
 		end
@@ -860,8 +886,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 	end
 	local function pier(x, y)
 		if not structure then return end
-		local t = transf.scaleXYZRotZTransl(vec3.new(1, 1, (DZ - DECK_DEPTH) / 4), math.rad(90), vec3.new(x + 1.5, y, 0))
-		addModelTo(cs.models, PILLAR_MODEL, transform, t, tag)
+		addColumn(cs, transform, x - 1, x + 1, y - 1, y + 1, 0, DZ - DECK_DEPTH, tag)
 	end
 
 	for _, x in ipairs(xs) do

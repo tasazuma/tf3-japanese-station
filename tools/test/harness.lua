@@ -1354,3 +1354,55 @@ do
 		print((ok and "" or "FAIL ") .. "middle roof len " .. len, lo, hi, ps, pe)
 	end
 end
+
+-- 19) rigid-frame viaduct: the base station leaves the deck floating; the 高架下 skins draw columns and
+-- beams, each box being two crossed pier pieces (the piece only has its +-X faces)
+print("== viaduct frames ==")
+do
+	local function pieces(r)
+		local out = {}
+		for _, md in ipairs(r.cargoStation.models) do if md.id:find("c_pillar_small") then table.insert(out, md.transf) end end
+		return out
+	end
+	local base = { jpst_length = 1, jpst_tracks = 2, jpst_level = 2, jpst_platformWidth = 2 }
+	local r0 = build({ modulesByName = script.createTemplateFn({}, base) })
+	print((#pieces(r0) == 0 and "" or "FAIL ") .. "elevated without 高架下 module floats", #pieces(r0))
+	local ok = true
+	for _, el in ipairs(r0.edgeLists or {}) do
+		if el.edgeTypeName and el.edgeTypeName ~= "jpst_station::/infrastructure/bridge/jpst_viaduct.bridge" then ok = false end
+	end
+	print((ok and "" or "FAIL ") .. "viaduct bridge type")
+
+	-- 2 tracks + 10 m island = one 20 m block: column lines only on its two edges (inner boundaries are
+	-- within 6 m of an edge) x 4 frames, plus 4 beams across the whole block
+	base.jpst_passage = 3
+	base.jpst_building = 3
+	local ps = pieces(build({ modulesByName = script.createTemplateFn({}, base) }))
+	local nCol, nBeam, bad = 0, 0, 0
+	local colAxes, beamAxes = {}, {}
+	for _, t in ipairs(ps) do
+		local det = t[1] * (t[6] * t[11] - t[7] * t[10]) - t[5] * (t[2] * t[11] - t[3] * t[10]) + t[9] * (t[2] * t[7] - t[3] * t[6])
+		local lo, hi = { math.huge, math.huge, math.huge }, { -math.huge, -math.huge, -math.huge }
+		for _, x in ipairs({ -1.056, 1.056 }) do for _, y in ipairs({ 0, 3 }) do for _, z in ipairs({ 0, 4 }) do
+			for i = 1, 3 do
+				local v = t[i] * x + t[4 + i] * y + t[8 + i] * z + t[12 + i]
+				lo[i], hi[i] = math.min(lo[i], v), math.max(hi[i], v)
+			end
+		end end end
+		local d = { hi[1] - lo[1], hi[2] - lo[2], hi[3] - lo[3] }
+		local function near(a, b) return math.abs(a - b) < 1e-3 end
+		-- face normal = the piece's X axis
+		local ax = math.abs(t[1]) > 1e-6 and "x" or math.abs(t[2]) > 1e-6 and "y" or "z"
+		if det <= 0 then bad = bad + 1
+		elseif near(d[1], 1) and near(d[2], 1) and near(d[3], 7.6) and near(lo[3], 0) then
+			nCol = nCol + 1; colAxes[ax] = (colAxes[ax] or 0) + 1
+		elseif near(d[1], 20) and near(d[2], 1) and near(d[3], 1) and near(hi[3], 7.6) then
+			nBeam = nBeam + 1; beamAxes[ax] = (beamAxes[ax] or 0) + 1
+		else bad = bad + 1 end
+	end
+	local good = bad == 0 and nCol == 16 and nBeam == 8 and colAxes.x == 8 and colAxes.y == 8 and beamAxes.y == 4 and beamAxes.z == 4
+	print((good and "" or "FAIL ") .. "closed 1x1x7.6 columns and 20x1x1 beams", bad, nCol, nBeam)
+
+	local g = build({ modulesByName = script.createTemplateFn({}, { jpst_length = 1, jpst_tracks = 2 }) })
+	print((#pieces(g) == 0 and "" or "FAIL ") .. "ground no columns", #pieces(g))
+end

@@ -14,7 +14,8 @@ layout.UNDERGROUND_Z = -7
 layout.ELEVATED_Z = 10
 layout.CONCOURSE_Z = 9 -- 2F concourse floor over ground tracks
 layout.CONCOURSE_HALF_WIDTH = 5
-layout.BRIDGE_TYPE = "::/infrastructure/bridge/concrete.bridge"
+-- vanilla concrete deck without the game's piers; the station draws its own rigid-frame columns
+layout.BRIDGE_TYPE = "jpst_station::/infrastructure/bridge/jpst_viaduct.bridge"
 
 layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6, ROOF = 7 }
 layout.LEVEL = { GROUND = 0, ELEVATED = 1 } -- 2..9 reserved (underground etc.)
@@ -471,6 +472,26 @@ function layout.elevatedBlocks(L, seg)
 		end
 	end
 	return blocks
+end
+
+-- Column lines of the viaduct (ラーメン高架橋) under an elevated block, in station X: both outer edges
+-- (inset) and inner row boundaries at least minGap from the previous line and the far edge.
+-- Shared by the viaduct frames of the elevated cells and the columns of the 高架下駅舎.
+layout.VIADUCT_FRAME_YS = { -15, -5, 5, 15 }
+function layout.viaductColumnXs(L, b, inset, minGap)
+	local x0 = layout.centre(L, b.first) - layout.width(L, b.first) / 2
+	local x1 = layout.centre(L, b.last) + layout.width(L, b.last) / 2
+	local xs = { x0 + inset }
+	local last = xs[1]
+	for row = b.first, b.last - 1 do
+		local xb = layout.centre(L, row) + layout.width(L, row) / 2
+		if xb - last >= minGap and x1 - xb >= minGap then
+			table.insert(xs, xb)
+			last = xb
+		end
+	end
+	table.insert(xs, x1 - inset)
+	return xs, x0, x1
 end
 
 -- Slot of the 高架下駅舎: ground level, centred under all elevated rows of the segment.

@@ -32,8 +32,19 @@ function data()
 		updateScript = {
 			fileName = "jpst_station::/stations/jpst/jpst_modules.script@underviaduct.updateFn",
 			params = {
-				columns = { id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", rotZ = 90, scale = { 1 / 3, 1 / 3, 7.6 / 4 }, offset = { 0.5, 0 },
-				ys = { -15, -5, 5, 15 }, minGap = 6 },
+				columns = {
+				models = {
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 1 / 2.112, 0, 0, 0, 0, 1 / 3, 0, 0, 0, 0, 7.6 / 4, 0, 0, -0.5, 0, 1 } },
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, 1 / 2.112, 0, 0, -1 / 3, 0, 0, 0, 0, 0, 7.6 / 4, 0, 0.5, 0, 0, 1 } },
+				},
+				ys = { -15, -5, 5, 15 }, minGap = 6,
+			},
+				beams = {
+				models = {
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, -1 / 2.112, 0, 0, 1 / 3, 0, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -1, 1 } },
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, 0, 1 / 2.112, 0, 1 / 3, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -0.5, -0.5, 1 } },
+				},
+			},
 				exitModels = {
 				{ id = "::/assets/stations/street/tickets_era_c_1.mdl", x = 3.5, y = 2.5, rotZ = -90 },
 				{ id = "::/assets/stations/street/tickets_era_c_1.mdl", x = 3.5, y = 3.6, rotZ = -90 },
@@ -49,8 +60,19 @@ function data()
 		getModelsScript = {
 			fileName = "jpst_station::/stations/jpst/jpst_modules.script@underviaduct.getModelsFn",
 			params = {
-				columns = { id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", rotZ = 90, scale = { 1 / 3, 1 / 3, 7.6 / 4 }, offset = { 0.5, 0 },
-				ys = { -15, -5, 5, 15 }, minGap = 6 },
+				columns = {
+				models = {
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 1 / 2.112, 0, 0, 0, 0, 1 / 3, 0, 0, 0, 0, 7.6 / 4, 0, 0, -0.5, 0, 1 } },
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, 1 / 2.112, 0, 0, -1 / 3, 0, 0, 0, 0, 0, 7.6 / 4, 0, 0.5, 0, 0, 1 } },
+				},
+				ys = { -15, -5, 5, 15 }, minGap = 6,
+			},
+				beams = {
+				models = {
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, -1 / 2.112, 0, 0, 1 / 3, 0, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -1, 1 } },
+					{ id = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl", transf = { 0, 0, 1 / 2.112, 0, 1 / 3, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -0.5, -0.5, 1 } },
+				},
+			},
 				exitModels = {
 				{ id = "::/assets/stations/street/tickets_era_c_1.mdl", x = 3.5, y = 2.5, rotZ = -90 },
 				{ id = "::/assets/stations/street/tickets_era_c_1.mdl", x = 3.5, y = 3.6, rotZ = -90 },
