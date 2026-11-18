@@ -11,7 +11,6 @@ local config = {
 		{ id = "jpst_station::/stations/jpst/perron/jpst_perron_5_underpass.mdl", x = 0 },
 	},
 	endModel = "::/stations/rail/era_c/perron_5_end.mdl",
-	borderModel = "::/stations/rail/era_c/perron_5_border.mdl",
 	signs = {
 		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairwells (5 < |y| < 9.5)
 		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -15, z = 1.1, roofless = true },

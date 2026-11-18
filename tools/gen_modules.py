@@ -47,6 +47,7 @@ PLATFORMS = [
      "perron_10_end.mdl", "perron_5_border.mdl", 100000),
 ]
 STAIRS_PRICE = 30000
+PDOORS_PRICE = 80000
 ELEVATED_PRICE_FACTOR = 2
 # vanilla platform models replaced by the generated Japanese-style ones (tools/gen_models.py)
 CUSTOM_PLATFORM_MODELS = {
@@ -248,7 +249,6 @@ def gen_platforms():
 {sms}
 	}},
 	endModel = "{ERA_C}{end}",
-	borderModel = "{ERA_C}{border}",
 {SIGNS}}}
 
 function data()
@@ -320,6 +320,45 @@ def gen_stairs():
 		}},
 		getModelsScript = {{
 			fileName = "{SCRIPT}@stairs.getModelsFn",
+			params = {{}},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def gen_pdoors():
+    write("jpst_pdoors_basic", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = 150 }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_PDOORS_BASIC_NAME"),
+			description = _("JPST_PDOORS_DESC"),
+			icon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c.tga",
+			previewIcon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c_preview.tga",
+			attributes = {{
+				cost = {{ {PDOORS_PRICE}, -1 }},
+				maintenanceCost = {{ {PDOORS_PRICE // 10}, -1 }},
+			}},
+		}},
+		type = "jpst_pdoors",
+		metadata = {{
+			jpst_pdoors = true,
+			price = {PDOORS_PRICE},
+			maintenanceCost = {PDOORS_PRICE // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@pdoors.updateFn",
+			params = {{}},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@pdoors.getModelsFn",
 			params = {{}},
 		}},
 		builderAudioRes = "{AUDIO}",
@@ -985,6 +1024,7 @@ if __name__ == "__main__":
     gen_tracks()
     gen_platforms()
     gen_stairs()
+    gen_pdoors()
     gen_roofs()
     gen_building()
     gen_brick_buildings()

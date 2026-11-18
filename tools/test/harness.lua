@@ -244,9 +244,16 @@ for j = -1, 1 do
 	m5[layout.encode(K.TRACK, G, 1, j)] = T
 	m5[layout.encode(K.PLATFORM, G, 0, j)] = layout.moduleName("jpst_platform_island_5")
 	if j == 0 then m5[layout.encode(K.STAIRS, G, 0, j)] = layout.moduleName("jpst_stairs_basic") end
+	m5[layout.encode(K.DOORS, G, 0, j)] = layout.moduleName("jpst_pdoors_basic")
 end
 m5[layout.encode(K.BUILDING, G, layout.SIDE.PLUS_X, 1)] = layout.moduleName("jpst_building_small")
 variant("5m + building +X", m5)
+do
+	local r = build({ modulesByName = m5 })
+	local n = 0
+	for _, m in ipairs(r.cargoStation.models) do if m.id:find("jpst_pdoor_5") then n = n + 1 end end
+	print(n == 3 and "ok   pdoors drawn per platform cell" or ("FAIL pdoors drawn " .. n))
+end
 variant("track only", { [layout.encode(K.TRACK, G, 0, 0)] = T })
 variant("platform only", { [layout.encode(K.PLATFORM, G, 0, 0)] = layout.moduleName("jpst_platform_island_10") })
 variant("empty", {})
@@ -257,6 +264,7 @@ for j = 0, 1 do
 	m2[layout.encode(K.PLATFORM, G, -1, j)] = layout.moduleName("jpst_platform_island_10")
 	m2[layout.encode(K.PLATFORM, G, 1, j)] = layout.moduleName("jpst_platform_island_10")
 	if j == 0 then m2[layout.encode(K.STAIRS, G, 1, j)] = layout.moduleName("jpst_stairs_basic") end
+	m2[layout.encode(K.DOORS, G, 1, j)] = layout.moduleName("jpst_pdoors_basic")
 end
 variant("2 platforms 3 tracks", m2)
 

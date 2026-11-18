@@ -149,6 +149,23 @@ end
 
 -- Platform ------------------------------------------------------------------
 
+-- The platform edge facing a track gets the concrete strip, tactile paving and screen doors; an edge without a
+-- track is plain floor. Mesh +y is script -x, i.e. the row-1 side. Models for the other cases carry a suffix.
+local function trackSideSuffix(L, row, seg)
+	local lv = layout.rowLevel(L, row)
+	local a = layout.isTrack(L, row - 1, seg) and layout.rowLevel(L, row - 1) == lv
+	local b = layout.isTrack(L, row + 1, seg) and layout.rowLevel(L, row + 1) == lv
+	if a and b then return "" end
+	if a then return "_p" end
+	if b then return "_m" end
+	return "_n"
+end
+
+local function sideModel(id, suffix)
+	if suffix == "" or not (id:find("jpst_perron_", 1, true) or id:find("jpst_pdoor_", 1, true)) then return id end
+	return (id:gsub("%.mdl$", suffix .. ".mdl"))
+end
+
 local function updatePlatform(captureParams, result, transform, tag, slotId, addModel, constrParams)
 	if result.jpst.layout.ignored[slotId] then return end
 	local cs = result.cargoStation
@@ -166,8 +183,9 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	local top = z + H
 	local stairY = 7.5
 
+	local suffix = trackSideSuffix(L, row, seg)
 	for _, m in ipairs(withStairs and cfg.stairModels or cfg.models) do
-		addModelTo(cs.models, m.id, transform, lift(perronTransf(m.x), z), tag)
+		addModelTo(cs.models, sideModel(m.id, suffix), transform, lift(perronTransf(m.x), z), tag)
 	end
 	local roofed = layout.hasRoof(L, row, seg)
 	for _, s in ipairs(cfg.signs or {}) do
@@ -274,6 +292,31 @@ end
 
 local function getModelsStairs()
 	return { { id = STAIRWELL_MODEL, transf = perronTransf(0) } }
+end
+
+-- Platform screen doors (ホームドア) -------------------------------------------------
+-- Glass panels with a door opening every 4 m along both platform edges; a separate module so it does not
+-- multiply the platform skins.
+
+local PDOOR_MODELS = {
+	[5] = "jpst_station::/stations/jpst/perron/jpst_pdoor_5.mdl",
+	[10] = "jpst_station::/stations/jpst/perron/jpst_pdoor_10.mdl",
+}
+
+local function updatePdoors(captureParams, result, transform, tag, slotId)
+	local L = result.jpst.layout
+	if L.ignored[slotId] then return end
+	local _, level, row, seg = layout.decode(slotId)
+	local z = (level == ELEVATED) and EZ or 0
+	local T = layout.slotTransf(L, row, seg, layout.LEVEL.GROUND)
+	local suffix = trackSideSuffix(L, row, seg)
+	if suffix == "_n" then return end
+	local model = sideModel(PDOOR_MODELS[layout.width(L, row) > 5 and 10 or 5], suffix)
+	addModelTo(result.cargoStation.models, model, T, lift(perronTransf(0), z), tag)
+end
+
+local function getModelsPdoors()
+	return { { id = PDOOR_MODELS[5], transf = perronTransf(0) } }
 end
 
 -- Platform roof (上家) ---------------------------------------------------------
@@ -1300,6 +1343,10 @@ function data()
 		stairs = {
 			updateFn = updateStairs,
 			getModelsFn = getModelsStairs,
+		},
+		pdoors = {
+			updateFn = updatePdoors,
+			getModelsFn = getModelsPdoors,
 		},
 		roof = {
 			updateFn = updateRoof,

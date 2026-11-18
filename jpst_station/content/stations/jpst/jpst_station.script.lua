@@ -274,6 +274,7 @@ local function addSlots(result, L, modules)
 			if c.kind == KIND.PLATFORM then
 				local tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, c.level))
 				addSlot(layout.encode(KIND.STAIRS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.STAIRS], { 0, 0, 0, 0 })
+				addSlot(layout.encode(KIND.DOORS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.DOORS], { 0, 0, 0, 0 })
 			end
 		end
 	end
@@ -302,12 +303,12 @@ local function addSlots(result, L, modules)
 			-- a roof left behind after its platform was removed: keep it up at roof height with no spacing,
 			-- otherwise it blocks the platform slot underneath
 			tf = transf.mul(transf.transl(vec3.new(0, 0, ROOF_SLOT_Z)), layout.slotTransf(L, row, seg, level))
-		elseif kind == KIND.STAIRS then
+		elseif kind == KIND.STAIRS or kind == KIND.DOORS then
 			tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, level))
 		else
 			tf = layout.slotTransf(L, row, seg, level)
 		end
-		local flat = kind == KIND.ROOF or kind == KIND.STAIRS
+		local flat = kind == KIND.ROOF or kind == KIND.STAIRS or kind == KIND.DOORS
 		addSlot(id, tf, layout.slotTypeOf(id), flat and { 0, 0, 0, 0 } or { 1, 1, 1, 1 })
 	end
 end
