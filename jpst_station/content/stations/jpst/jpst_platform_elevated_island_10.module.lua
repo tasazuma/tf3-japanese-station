@@ -3,21 +3,22 @@ local transf = require "::/scripts/mat4.tl"
 
 local config = {
 	width = 10,
-	stairsX = nil,
+	stairsX = -2.5,
 	models = {
-		{ id = "::/stations/rail/era_c/perron_10.mdl", x = 0 },
+		{ id = "jpst_station::/stations/jpst/perron/jpst_perron_10.mdl", x = 0 },
+	},
+	stairModels = {
+		{ id = "jpst_station::/stations/jpst/perron/jpst_perron_10_underpass.mdl", x = 0 },
 	},
 	endModel = "::/stations/rail/era_c/perron_10_end.mdl",
 	borderModel = "::/stations/rail/era_c/perron_5_border.mdl",
 	signs = {
-		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairs (|y| < 6.5)
+		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairwells (5 < |y| < 9.5)
 		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -15, z = 1.1, roofless = true },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -7.5, z = 1.1, roofless = true },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 7.5, z = 1.1, roofless = true },
 		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 15, z = 1.1, roofless = true },
 		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -15, z = 2.5, label = "name" },
 		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 15, z = 2.5, label = "name" },
-		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = -7.265, z = 3.5, label = "number" },
+		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = -12.5, z = 3.5, label = "number" },
 	},
 }
 
@@ -26,7 +27,7 @@ function data()
 		availability = { yearFrom = 0, yearTo = 0 },
 		menuCategory = {
 			categories = {
-				{ category = "modules_platforms", filterCategories = { "passenger" }, order = 112 },
+				{ category = "modules_platforms", filterCategories = { "passenger" }, order = 111 },
 			},
 		},
 		description = {
@@ -41,7 +42,6 @@ function data()
 			passenger_platform = true,
 			jpst_width = 10,
 			jpst_level = "elevated",
-			jpst_stairs = false,
 			price = 200000,
 			maintenanceCost = 33333,
 			emissionConfig = { noise = 1, pollution = 5 },

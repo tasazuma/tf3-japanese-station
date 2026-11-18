@@ -17,7 +17,7 @@ layout.CONCOURSE_HALF_WIDTH = 5
 -- vanilla concrete deck without the game's piers; the station draws its own rigid-frame columns
 layout.BRIDGE_TYPE = "jpst_station::/infrastructure/bridge/jpst_viaduct.bridge"
 
-layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6, ROOF = 7 }
+layout.KIND = { TRACK = 1, PLATFORM = 2, BUILDING = 3, CONCOURSE = 4, FORECOURT = 5, UNDER = 6, ROOF = 7, STAIRS = 8 }
 layout.LEVEL = { GROUND = 0, ELEVATED = 1 } -- 2..9 reserved (underground etc.)
 layout.LEVEL_Z = { [0] = 0, [1] = layout.ELEVATED_Z }
 layout.LEVEL_SUFFIX = { [0] = "", [1] = "_elevated" }
@@ -41,12 +41,13 @@ layout.SLOT_TYPE = {
 	[5] = "jpst_forecourt",
 	[6] = "jpst_underviaduct",
 	[7] = "jpst_roof", -- platform roof (上家); same slot type on every level
+	[8] = "jpst_stairs", -- platform stairs (階段); same slot type on every level
 }
 
 -- Track/platform slot types differ per level so the module picker only shows matching slots.
 function layout.slotType(kind, level)
 	if kind == layout.KIND.BUILDING or kind == layout.KIND.CONCOURSE or kind == layout.KIND.UNDER
-		or kind == layout.KIND.ROOF then
+		or kind == layout.KIND.ROOF or kind == layout.KIND.STAIRS then
 		return layout.SLOT_TYPE[kind]
 	end
 	return layout.SLOT_TYPE[kind] .. (layout.LEVEL_SUFFIX[level] or "")
@@ -155,6 +156,7 @@ function layout.compute(modules)
 		underViaducts = {}, -- [seg] = slotId of the 高架下駅舎 (one per segment, needs an elevated row)
 		roofCover = {},  -- roofCover[row][seg] = true when that roof spans the neighbouring tracks (metadata.jpst_roof_cover)
 		roofs = {},      -- roofs[row][seg] = slotId of the platform roof (needs a platform on the same level)
+		stairs = {},     -- stairs[row][seg] = slotId of the platform stairs (needs a platform on the same level)
 		forecourts = {}, -- [slotId] = { module, level, side, d, w, h, seg } (level 0 = 1F plaza, 1 = deck)
 		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
 		deckAt = { [0] = {}, [1] = {} },      -- deckAt[side][d][seg] = slotId (deck, level 1)
@@ -214,6 +216,14 @@ function layout.compute(modules)
 					L.roofCover[row] = L.roofCover[row] or {}
 					L.roofCover[row][seg] = true
 				end
+			else
+				L.ignored[id] = true
+			end
+		elseif kind == layout.KIND.STAIRS then
+			local c = L.cells[row] and L.cells[row][seg]
+			if c and c.kind == layout.KIND.PLATFORM and c.level == level then
+				L.stairs[row] = L.stairs[row] or {}
+				L.stairs[row][seg] = id
 			else
 				L.ignored[id] = true
 			end
@@ -399,6 +409,10 @@ end
 function layout.isPlatform(L, row, seg)
 	local c = layout.get(L, row, seg)
 	return c ~= nil and c.kind == layout.KIND.PLATFORM
+end
+
+function layout.hasStairs(L, row, seg)
+	return L.stairs[row] ~= nil and L.stairs[row][seg] ~= nil
 end
 
 function layout.hasRoof(L, row, seg)
@@ -720,7 +734,7 @@ function layout.rectFace(x0, y0, x1, y1)
 end
 
 layout.GROUND_MODES_PLATFORM = {
-	{ type = "FILL", key = "::/terrain/materials/gravel_03/gravel_03.gtex" },
+	{ type = "FILL", key = "jpst_station::/stations/jpst/jpst_platform_floor.gtex" },
 	{ type = "STROKE_OUTER", key = "::/infrastructure/street/shared/street_border.gtex" },
 }
 

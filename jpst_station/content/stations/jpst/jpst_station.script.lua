@@ -8,9 +8,9 @@ local layout = require "jpst_station::/scripts/jpst/layout.lua"
 local KIND = layout.KIND
 local GROUND = layout.LEVEL.GROUND
 
-local function platformName(level, stairs, width)
+local function platformName(level, width)
 	local mid = (level == layout.LEVEL.ELEVATED) and "jpst_platform_elevated_island_" or "jpst_platform_island_"
-	return layout.moduleName(mid .. tostring(width) .. (stairs and "_stairs" or ""))
+	return layout.moduleName(mid .. tostring(width))
 end
 local BUILDING_SMALL = layout.moduleName("jpst_building_small")
 local function brickBuildingName(size)
@@ -20,6 +20,8 @@ local CONCOURSE = layout.moduleName("jpst_concourse")
 local UNDER_VIADUCT = layout.moduleName("jpst_underviaduct_pillars")
 local ROOF = layout.moduleName("jpst_roof_era_c")
 local ROOF_SLOT_Z = 4 -- roof slots float at roof height so they do not hide the platform slot
+local STAIRS = layout.moduleName("jpst_stairs_basic")
+local STAIRS_SLOT_Z = 2 -- stairs slots float just above the platform floor
 
 local DEFAULT_CATCHMENT_RADIUS = 150
 
@@ -107,7 +109,10 @@ local function createTemplateFn(captureParams, params)
 			if kind == KIND.TRACK then
 				result[layout.encode(KIND.TRACK, level, row, j)] = trackName
 			else
-				result[layout.encode(KIND.PLATFORM, level, row, j)] = platformName(level, hasStairs(j), platformWidth)
+				result[layout.encode(KIND.PLATFORM, level, row, j)] = platformName(level, platformWidth)
+				if hasStairs(j) then
+					result[layout.encode(KIND.STAIRS, level, row, j)] = STAIRS
+				end
 				if j >= roofS and j < roofS + roofN then
 					result[layout.encode(KIND.ROOF, level, row, j)] = ROOF
 				end
@@ -263,6 +268,16 @@ local function addSlots(result, L, modules)
 		end
 	end
 
+	-- Platform stairs (階段): one slot over every platform cell, floating just above the floor
+	for row, segs in pairs(L.cells) do
+		for seg, c in pairs(segs) do
+			if c.kind == KIND.PLATFORM then
+				local tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, c.level))
+				addSlot(layout.encode(KIND.STAIRS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.STAIRS], { 0, 0, 0, 0 })
+			end
+		end
+	end
+
 	-- 高架下駅舎: ground level under the elevated rows of a segment (10 m below the elevated slots)
 	for seg, _ in pairs(L.segs) do
 		local tf, half = layout.underViaductSlotTransf(L, seg)
@@ -287,10 +302,13 @@ local function addSlots(result, L, modules)
 			-- a roof left behind after its platform was removed: keep it up at roof height with no spacing,
 			-- otherwise it blocks the platform slot underneath
 			tf = transf.mul(transf.transl(vec3.new(0, 0, ROOF_SLOT_Z)), layout.slotTransf(L, row, seg, level))
+		elseif kind == KIND.STAIRS then
+			tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, level))
 		else
 			tf = layout.slotTransf(L, row, seg, level)
 		end
-		addSlot(id, tf, layout.slotTypeOf(id), kind == KIND.ROOF and { 0, 0, 0, 0 } or { 1, 1, 1, 1 })
+		local flat = kind == KIND.ROOF or kind == KIND.STAIRS
+		addSlot(id, tf, layout.slotTypeOf(id), flat and { 0, 0, 0, 0 } or { 1, 1, 1, 1 })
 	end
 end
 

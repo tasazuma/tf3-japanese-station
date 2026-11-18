@@ -9,6 +9,10 @@ local EZ = layout.ELEVATED_Z
 local ELEVATED = layout.LEVEL.ELEVATED
 local DECK_DEPTH = 2.4
 local DECK_MODEL = "::/infrastructure/bridge/concrete/c_6_rep_rep.mdl"
+local FLOOR_DECK_MODEL = "jpst_station::/stations/jpst/perron/jpst_deck.mdl"
+local DECK_THICK = 0.8
+local GATE_MODEL = "jpst_station::/stations/jpst/perron/jpst_gate.mdl"
+local GATE_Y = 3.5 -- ticket gate line on the 2F concourse, in front of each ramp
 local PILLAR_MODEL = "::/infrastructure/bridge/concrete/c_pillar_small_rep_m.mdl"
 local TERMINAL_LANE_WIDTH = 2.4
 local LANE_WIDTH = 3
@@ -153,14 +157,16 @@ local function updatePlatform(captureParams, result, transform, tag, slotId, add
 	local _, level, row, seg = layout.decode(slotId)
 	local cfg = captureParams
 	local w = cfg.width
-	local sx = cfg.stairsX
+	-- the stairs module in the slot above switches this cell to the stair-bearing platform models
+	local withStairs = layout.hasStairs(L, row, seg)
+	local sx = withStairs and cfg.stairsX or nil
 	local elevated = level == ELEVATED
 	if elevated then transform = groundTransf(transform) end
 	local z = elevated and EZ or 0
 	local top = z + H
 	local stairY = 7.5
 
-	for _, m in ipairs(cfg.models) do
+	for _, m in ipairs(withStairs and cfg.stairModels or cfg.models) do
 		addModelTo(cs.models, m.id, transform, lift(perronTransf(m.x), z), tag)
 	end
 	local roofed = layout.hasRoof(L, row, seg)
@@ -245,6 +251,29 @@ local function getModelsPlatform(captureParams, params)
 		table.insert(res, { id = s.id, transf = signTransf(s) })
 	end
 	return res
+end
+
+-- Platform stairs (階段) ---------------------------------------------------------
+-- The module draws the stairwell walls and steps (so it can be picked and removed on its own); the platform in
+-- the same cell reads layout.hasStairs and draws the floor with the openings and the lanes down to the passage.
+
+local STAIRWELL_MODEL = "jpst_station::/stations/jpst/perron/jpst_stairwell.mdl"
+
+local function stairsX(w)
+	return w > 5 and -2.5 or 0
+end
+
+local function updateStairs(captureParams, result, transform, tag, slotId)
+	local L = result.jpst.layout
+	if L.ignored[slotId] then return end
+	local _, level, row, seg = layout.decode(slotId)
+	local z = (level == ELEVATED) and EZ or 0
+	local T = layout.slotTransf(L, row, seg, layout.LEVEL.GROUND)
+	addModelTo(result.cargoStation.models, STAIRWELL_MODEL, T, lift(perronTransf(stairsX(layout.width(L, row))), z), tag)
+end
+
+local function getModelsStairs()
+	return { { id = STAIRWELL_MODEL, transf = perronTransf(0) } }
 end
 
 -- Platform roof (上家) ---------------------------------------------------------
@@ -462,7 +491,7 @@ local CHW = layout.CONCOURSE_HALF_WIDTH
 local CONCOURSE_OVERHANG = 4 -- deck beyond the outer row edge
 local EXIT_RUN = 16          -- horizontal run of the exit stair (9 m drop)
 local RAMP_WIDTH = 3
-local RAMP_DEPTH_SCALE = 0.3
+local RAMP_DEPTH_SCALE = 0.6
 
 -- Stretch the 6 x 4 m concrete deck piece (local X 0..6, Y 0..4, top at z=0) between two points.
 local function beamTransf(p0, p1, width, depthScale)
@@ -502,8 +531,8 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 	local deckL = front[layout.SIDE.MINUS_X] or xL - CONCOURSE_OVERHANG
 	local deckR = front[layout.SIDE.PLUS_X] or xR + CONCOURSE_OVERHANG
 
-	addModelTo(cs.models, DECK_MODEL, T, beamTransf({ deckL, 0, CZ }, { deckR, 0, CZ }, CHW * 2), tag)
-	local pierH = CZ - DECK_DEPTH
+	addModelTo(cs.models, FLOOR_DECK_MODEL, T, beamTransf({ deckL, 0, CZ }, { deckR, 0, CZ }, CHW * 2), tag)
+	local pierH = CZ - DECK_THICK
 	local function pier(x)
 		for _, y in ipairs({ -CHW + 1.5, CHW - 1.5 }) do
 			addColumn(cs, T, x - 1, x + 1, y - 1, y + 1, 0, pierH, tag)
@@ -542,7 +571,8 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 				layout.addLane(cs, { { xm, yEnd, top }, { c, yEnd, top }, { xp, yEnd, top } }, LANE_WIDTH, false, T)
 			end
 			layout.addLane(cs, { { c, yEnd, top }, { c, dir * CHW, CZ } }, LANE_WIDTH, false, T)
-			addModelTo(cs.models, DECK_MODEL, T,
+			addModelTo(cs.models, GATE_MODEL, T, transf.transl(vec3.new(c, dir * GATE_Y, CZ)), tag)
+			addModelTo(cs.models, FLOOR_DECK_MODEL, T,
 				beamTransf({ c, yEnd, top }, { c, dir * CHW, CZ }, RAMP_WIDTH, RAMP_DEPTH_SCALE), tag)
 		end
 	end
@@ -558,7 +588,7 @@ local function updateConcourse(captureParams, result, transform, tag, slotId, ad
 			pier(xDeck - dir * 1.5)
 			local xFoot = xDeck + dir * EXIT_RUN
 			layout.addLane(cs, { { xDeck, 0, CZ }, { xFoot, 0, 0 } }, LANE_WIDTH, false, T)
-			addModelTo(cs.models, DECK_MODEL, T,
+			addModelTo(cs.models, FLOOR_DECK_MODEL, T,
 				beamTransf({ xDeck, 0, CZ }, { xFoot, 0, 0 }, RAMP_WIDTH, RAMP_DEPTH_SCALE), tag)
 			layout.addLane(cs, { { xFoot, -8, 0 }, { xFoot, 0, 0 }, { xFoot, 8, 0 } }, LANE_WIDTH, true, T)
 			local x0, x1 = math.min(xFoot, xFoot - dir * 4), math.max(xFoot, xFoot - dir * 4)
@@ -1121,11 +1151,11 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 	local xs, ys = forecourtCells(w, h)
 
 	local function beam(p0, p1, width, depthScale)
-		if structure then addModelTo(cs.models, DECK_MODEL, transform, beamTransf(p0, p1, width, depthScale), tag) end
+		if structure then addModelTo(cs.models, FLOOR_DECK_MODEL, transform, beamTransf(p0, p1, width, depthScale), tag) end
 	end
 	local function pier(x, y)
 		if not structure then return end
-		addColumn(cs, transform, x - 1, x + 1, y - 1, y + 1, 0, DZ - DECK_DEPTH, tag)
+		addColumn(cs, transform, x - 1, x + 1, y - 1, y + 1, 0, DZ - DECK_THICK, tag)
 	end
 
 	for _, x in ipairs(xs) do
@@ -1211,9 +1241,9 @@ local function getModelsDeck(captureParams, params)
 	local res = {}
 	local cfg = captureParams or {}
 	if cfg.structure ~= false then
-		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, 8) }
-		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ 0, -10, 0 }, { 0, -4, 0 }, 8) }
-		res[#res + 1] = { id = DECK_MODEL, transf = beamTransf({ 0, 4, 0 }, { 0, 10, 0 }, 8) }
+		res[#res + 1] = { id = FLOOR_DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, 8) }
+		res[#res + 1] = { id = FLOOR_DECK_MODEL, transf = beamTransf({ 0, -10, 0 }, { 0, -4, 0 }, 8) }
+		res[#res + 1] = { id = FLOOR_DECK_MODEL, transf = beamTransf({ 0, 4, 0 }, { 0, 10, 0 }, 8) }
 	end
 	for _, m in ipairs(cfg.cellModels or {}) do
 		local id, t = buildingModelTransf(m)
@@ -1242,7 +1272,9 @@ end
 
 local function getModelsConcourse(captureParams, params)
 	return {
-		{ id = DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, CHW * 2) },
+		{ id = FLOOR_DECK_MODEL, transf = beamTransf({ -10, 0, 0 }, { 10, 0, 0 }, CHW * 2) },
+		{ id = GATE_MODEL, transf = transf.transl(vec3.new(0, GATE_Y, 0)) },
+		{ id = GATE_MODEL, transf = transf.transl(vec3.new(0, -GATE_Y, 0)) },
 	}
 end
 
@@ -1264,6 +1296,10 @@ function data()
 		platform = {
 			updateFn = updatePlatform,
 			getModelsFn = getModelsPlatform,
+		},
+		stairs = {
+			updateFn = updateStairs,
+			getModelsFn = getModelsStairs,
 		},
 		roof = {
 			updateFn = updateRoof,

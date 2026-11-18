@@ -6,19 +6,19 @@ function data()
 local newdir = "::/infrastructure/bridge/concrete/"
 
 local c_6_rep_l = {
-	newdir .. "c_6_rep_l.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { 0, -0.8, -2.4 }, { 6, 0, 1.1 } },
 }
 local c_6_rep_low_l = {
-	newdir .. "c_6_rep_low_l.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { 0, -0.8, -2.4 }, { 6, 0, 0.1 } },
 }
 local c_6_rep_low_r = {
-	newdir .. "c_6_rep_low_r.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { 0, 0, -2.4 }, { 6, 0.8, 0.1 } },
 }
 local c_6_rep_r = {
-	newdir .. "c_6_rep_r.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { 0, 0, -2.4 }, { 6, 0.8, 1.1 } },
 }
 local c_6_rep_rep = {
@@ -26,39 +26,39 @@ local c_6_rep_rep = {
 	{ { 0, 0, -2.4 }, { 6, 4, 0 } },
 }
 local c_abut_bot_l = {
-	newdir .. "c_abut_bot_l.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, -1.3, -1 }, { 2.9, 0, 3 } },
 }
 local c_abut_bot_m = {
-	newdir .. "c_abut_bot_m.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, -1 }, { 2.9, 4, 3 } },
 }
 local c_abut_bot_r = {
-	newdir .. "c_abut_bot_r.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, -1 }, { 2.9, 1.3, 3 } },
 }
 local c_abut_rep_l = {
-	newdir .. "c_abut_rep_l.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, -1.3, 0 }, { 2.9, 0, 4 } },
 }
 local c_abut_rep_m = {
-	newdir .. "c_abut_rep_m.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, 0 }, { 2.9, 4, 4 } },
 }
 local c_abut_rep_r = {
-	newdir .. "c_abut_rep_r.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, 0 }, { 2.9, 1.3, 4 } },
 }
 local c_abut_top_l = {
-	newdir .. "c_abut_top_l.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, -1.3, -2 }, { 2.9, 0, 0.1 } },
 }
 local c_abut_top_m = {
-	newdir .. "c_abut_top_m.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, -2 }, { 2.9, 4, 0.1 } },
 }
 local c_abut_top_r = {
-	newdir .. "c_abut_top_r.mdl",
+	"jpst_station::/infrastructure/jpst_track/invisible.mdl",
 	{ { -0.1, 0, -2 }, { 2.9, 1.3, 0.1 } },
 }
 local c_pillar_small_bot_l = {

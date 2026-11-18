@@ -41,14 +41,20 @@ LEVELS = {
 TRACK_TYPES = [("simple", 1, 40000), ("standard", 2, 60000), ("high_speed", 3, 90000)]
 
 PLATFORMS = [
-    # key, width, stairsX, models [(file, x)], end model, border model, price
-    ("5", 5, None, [("perron_5.mdl", 0)], "perron_5_end.mdl", "perron_5_border.mdl", 60000),
-    ("5_stairs", 5, 0, [("perron_5_underpass.mdl", 0)], "perron_5_end.mdl", "perron_5_border.mdl", 90000),
-    ("10", 10, None, [("perron_10.mdl", 0)], "perron_10_end.mdl", "perron_5_border.mdl", 100000),
-    ("10_stairs", 10, -2.5, [("perron_5_underpass.mdl", -2.5), ("perron_5.mdl", 2.5)], "perron_10_end.mdl",
-     "perron_5_border.mdl", 130000),
+    # key, width, stairsX, models [(file, x)], models with a stairs module in the cell, end model, border model, price
+    ("5", 5, 0, [("perron_5.mdl", 0)], [("perron_5_underpass.mdl", 0)], "perron_5_end.mdl", "perron_5_border.mdl", 60000),
+    ("10", 10, -2.5, [("perron_10.mdl", 0)], [("perron_10_underpass.mdl", 0)],
+     "perron_10_end.mdl", "perron_5_border.mdl", 100000),
 ]
+STAIRS_PRICE = 30000
 ELEVATED_PRICE_FACTOR = 2
+# vanilla platform models replaced by the generated Japanese-style ones (tools/gen_models.py)
+CUSTOM_PLATFORM_MODELS = {
+    "perron_5.mdl": "jpst_station::/stations/jpst/perron/jpst_perron_5.mdl",
+    "perron_5_underpass.mdl": "jpst_station::/stations/jpst/perron/jpst_perron_5_underpass.mdl",
+    "perron_10.mdl": "jpst_station::/stations/jpst/perron/jpst_perron_10.mdl",
+    "perron_10_underpass.mdl": "jpst_station::/stations/jpst/perron/jpst_perron_10_underpass.mdl",
+}
 
 
 def lua_bool(b):
@@ -189,6 +195,10 @@ def gen_viaduct_bridge():
     src = src.replace('require "::/infrastructure/bridge/bridgeutil2.lua"', 'require "::/infrastructure/bridge/bridgeutil2.lua"')
     src = src.replace('local newdir = "/infrastructure/bridge/concrete/"', 'local newdir = "::/infrastructure/bridge/concrete/"')
     src = re.sub(r'newdir \.\. "c_pillar_small_\w+\.mdl"', f'"{INVISIBLE_MODEL}"', src)
+    # the parapets would stand on the platform edge and clip through the tactile paving
+    src = re.sub(r'newdir \.\. "c_6_rep_(?:low_)?[lr]\.mdl"', f'"{INVISIBLE_MODEL}"', src)
+    # abutments (wing walls) would poke up beside the platform where a viaduct meets the ground
+    src = re.sub(r'newdir \.\. "c_abut_\w+\.mdl"', f'"{INVISIBLE_MODEL}"', src)
     src = re.sub(r'icon = "concrete.tga"', 'icon = "::/infrastructure/bridge/concrete.tga"', src)
     src = re.sub(r"availability\s*=\s*\{[^}]*\}", "availability = { yearFrom = 100000, yearTo = 0 }", src)
     src = re.sub(r"menuCategory\s*=\s*\{.*?\n\t\},\n", "menuCategory = { categories = {} },\n", src, flags=re.S)
@@ -206,14 +216,12 @@ def gen_viaduct_bridge():
 # roofless = true: only placed when the platform segment has no roof (like vanilla lightpoles).
 # label = "number" gets the track numbers (labels 1-2: track on -X, 3-4: track on +X), "name" the station name.
 SIGNS = """	signs = {
-		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairs (|y| < 6.5)
+		-- kept between the roof pillars (every 10 m from y = -20) and clear of the stairwells (5 < |y| < 9.5)
 		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -15, z = 1.1, roofless = true },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = -7.5, z = 1.1, roofless = true },
-		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 7.5, z = 1.1, roofless = true },
 		{ id = "::/assets/stations/rail/c_lightpole.mdl", y = 15, z = 1.1, roofless = true },
 		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = -15, z = 2.5, label = "name" },
 		{ id = "::/assets/stations/rail/era_c_station_name.mdl", y = 15, z = 2.5, label = "name" },
-		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = -7.265, z = 3.5, label = "number" },
+		{ id = "::/assets/stations/rail/era_c_perron_number.mdl", y = -12.5, z = 3.5, label = "number" },
 	},
 """
 
@@ -221,16 +229,23 @@ SIGNS = """	signs = {
 def gen_platforms():
     for level, (infix, slot_suffix, str_infix, order_off) in LEVELS.items():
         factor = ELEVATED_PRICE_FACTOR if level == "elevated" else 1
-        for i, (key, w, sx, models, end, border, price) in enumerate(PLATFORMS):
+        for i, (key, w, sx, models, stair_models, end, border, price) in enumerate(PLATFORMS):
             price *= factor
-            stairs = sx is not None
-            icon = "addon_platform_passenger_stairs_era_c" if stairs else "platform_passenger_era_c"
-            ms = "\n".join(f'\t\t{{ id = "{ERA_C}{m}", x = {x} }},' for m, x in models)
+            icon = "platform_passenger_era_c"
+
+            def model_list(lst):
+                return "\n".join(f'\t\t{{ id = "{CUSTOM_PLATFORM_MODELS.get(m, ERA_C + m)}", x = {x} }},'
+                                 for m, x in lst)
+            ms = model_list(models)
+            sms = model_list(stair_models)
             write(f"jpst_platform_{infix}island_{key}", HEADER + f'''local config = {{
 	width = {w},
-	stairsX = {"nil" if sx is None else sx},
+	stairsX = {sx},
 	models = {{
 {ms}
+	}},
+	stairModels = {{
+{sms}
 	}},
 	endModel = "{ERA_C}{end}",
 	borderModel = "{ERA_C}{border}",
@@ -256,7 +271,6 @@ function data()
 			passenger_platform = true,
 			jpst_width = {w},
 			jpst_level = "{level}",
-			jpst_stairs = {lua_bool(stairs)},
 			price = {price},
 			maintenanceCost = {price // 6},
 			emissionConfig = {{ noise = 1, pollution = 5 }},
@@ -268,6 +282,45 @@ function data()
 		getModelsScript = {{
 			fileName = "{SCRIPT}@platform.getModelsFn",
 			params = config,
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
+def gen_stairs():
+    write("jpst_stairs_basic", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = 140 }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_STAIRS_BASIC_NAME"),
+			description = _("JPST_STAIRS_DESC"),
+			icon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c.tga",
+			previewIcon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c_preview.tga",
+			attributes = {{
+				cost = {{ {STAIRS_PRICE}, -1 }},
+				maintenanceCost = {{ {STAIRS_PRICE // 10}, -1 }},
+			}},
+		}},
+		type = "jpst_stairs",
+		metadata = {{
+			jpst_stairs = true,
+			price = {STAIRS_PRICE},
+			maintenanceCost = {STAIRS_PRICE // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@stairs.updateFn",
+			params = {{}},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@stairs.getModelsFn",
+			params = {{}},
 		}},
 		builderAudioRes = "{AUDIO}",
 	}}
@@ -931,6 +984,7 @@ if __name__ == "__main__":
     gen_viaduct_bridge()
     gen_tracks()
     gen_platforms()
+    gen_stairs()
     gen_roofs()
     gen_building()
     gen_brick_buildings()

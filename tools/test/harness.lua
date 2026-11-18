@@ -242,7 +242,8 @@ local m5 = {}
 for j = -1, 1 do
 	m5[layout.encode(K.TRACK, G, -1, j)] = T
 	m5[layout.encode(K.TRACK, G, 1, j)] = T
-	m5[layout.encode(K.PLATFORM, G, 0, j)] = layout.moduleName(j == 0 and "jpst_platform_island_5_stairs" or "jpst_platform_island_5")
+	m5[layout.encode(K.PLATFORM, G, 0, j)] = layout.moduleName("jpst_platform_island_5")
+	if j == 0 then m5[layout.encode(K.STAIRS, G, 0, j)] = layout.moduleName("jpst_stairs_basic") end
 end
 m5[layout.encode(K.BUILDING, G, layout.SIDE.PLUS_X, 1)] = layout.moduleName("jpst_building_small")
 variant("5m + building +X", m5)
@@ -254,7 +255,8 @@ local m2 = {}
 for j = 0, 1 do
 	for _, row in ipairs({ -2, 0, 2 }) do m2[layout.encode(K.TRACK, G, row, j)] = T end
 	m2[layout.encode(K.PLATFORM, G, -1, j)] = layout.moduleName("jpst_platform_island_10")
-	m2[layout.encode(K.PLATFORM, G, 1, j)] = layout.moduleName(j == 0 and "jpst_platform_island_10_stairs" or "jpst_platform_island_10")
+	m2[layout.encode(K.PLATFORM, G, 1, j)] = layout.moduleName("jpst_platform_island_10")
+	if j == 0 then m2[layout.encode(K.STAIRS, G, 1, j)] = layout.moduleName("jpst_stairs_basic") end
 end
 variant("2 platforms 3 tracks", m2)
 
@@ -378,10 +380,12 @@ local mx = {}
 for j = -1, 1 do
 	mx[layout.encode(K.TRACK, G, -1, j)] = T
 	mx[layout.encode(K.TRACK, G, 1, j)] = T
-	mx[layout.encode(K.PLATFORM, G, 0, j)] = layout.moduleName(j == 0 and "jpst_platform_island_10_stairs" or "jpst_platform_island_10")
+	mx[layout.encode(K.PLATFORM, G, 0, j)] = layout.moduleName("jpst_platform_island_10")
+	if j == 0 then mx[layout.encode(K.STAIRS, G, 0, j)] = layout.moduleName("jpst_stairs_basic") end
 	mx[layout.encode(K.TRACK, E, 2, j)] = TE
 	mx[layout.encode(K.TRACK, E, 4, j)] = TE
-	mx[layout.encode(K.PLATFORM, E, 3, j)] = layout.moduleName(j == 0 and "jpst_platform_elevated_island_10_stairs" or "jpst_platform_elevated_island_10")
+	mx[layout.encode(K.PLATFORM, E, 3, j)] = layout.moduleName("jpst_platform_elevated_island_10")
+	if j == 0 then mx[layout.encode(K.STAIRS, E, 3, j)] = layout.moduleName("jpst_stairs_basic") end
 end
 mx[layout.encode(K.BUILDING, G, layout.SIDE.MINUS_X, 0)] = layout.moduleName("jpst_building_small")
 local rx = build({ modulesByName = mx })
@@ -398,7 +402,8 @@ local m5e = {}
 for j = -1, 1 do
 	m5e[layout.encode(K.TRACK, E, -1, j)] = TE
 	m5e[layout.encode(K.TRACK, E, 1, j)] = TE
-	m5e[layout.encode(K.PLATFORM, E, 0, j)] = layout.moduleName(j == 0 and "jpst_platform_elevated_island_5_stairs" or "jpst_platform_elevated_island_5")
+	m5e[layout.encode(K.PLATFORM, E, 0, j)] = layout.moduleName("jpst_platform_elevated_island_5")
+	if j == 0 then m5e[layout.encode(K.STAIRS, E, 0, j)] = layout.moduleName("jpst_stairs_basic") end
 end
 m5e[layout.encode(K.BUILDING, G, layout.SIDE.PLUS_X, 0)] = layout.moduleName("jpst_building_small")
 connectivity("elevated 5m", build({ modulesByName = m5e }))
@@ -454,7 +459,7 @@ for lvl = 1, 2 do for pl = 1, 2 do for pw = 1, 2 do for nt = 1, 8 do
 	local hasC, stairs = false, 0
 	for id, name in pairs(m) do
 		if name:find("concourse") then hasC = true end
-		if name:find("_stairs") then stairs = stairs + 1 end
+		if name:find("jpst_stairs") then stairs = stairs + 1 end
 	end
 	local r = build({ modulesByName = m })
 	io.write(("conc lvl=%d layout=%d w=%d tracks=%d concourse=%s stairsMods=%d linkables=%d terminals=%d "):format(lvl, pl, pw, nt, tostring(hasC), stairs, countLinkComps(r), #r.cargoStation.station.terminals))
@@ -572,7 +577,8 @@ check("", r, 0)
 local p = { jpst_building = 2, jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2, jpst_tracks = 2, jpst_platformWidth = 2 }
 local me3 = script.createTemplateFn({}, p)
 me3[layout.encode(K.TRACK, E, minRow - 1, 0)] = TE
-me3[layout.encode(K.PLATFORM, E, minRow - 2, 0)] = layout.moduleName("jpst_platform_elevated_island_10_stairs")
+me3[layout.encode(K.PLATFORM, E, minRow - 2, 0)] = layout.moduleName("jpst_platform_elevated_island_10")
+me3[layout.encode(K.STAIRS, E, minRow - 2, 0)] = layout.moduleName("jpst_stairs_basic")
 check("uneven rows elevated", build({ modulesByName = me3 }), 0)
 -- f) a covered segment disappears: the building is ignored but keeps its (typed) slot
 local p = { jpst_building = 2, jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 1, jpst_tracks = 2, jpst_platformWidth = 2 }
@@ -1340,8 +1346,8 @@ do
 	print(((nr == 4 and ne == 4) and "" or "FAIL ") .. "roof gap 5 m", nr, ne)
 	if not r.jpst.layout.ignored[stray] then print("FAIL stray roof not ignored") end
 	check("roof gap", r)
-	-- lightpoles only on roofless segments: 5 segments, middle roof covers all, full none -> 0; no roof -> 5 x 4
-	for _, case in ipairs({ { 1, 20 }, { 2, 0 } }) do
+	-- lightpoles only on roofless segments: 5 segments, middle roof covers all, full none -> 0; no roof -> 5 x 2
+	for _, case in ipairs({ { 1, 10 }, { 2, 0 } }) do
 		local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = case[1] })
 		local r = build({ modulesByName = m })
 		local np = 0
