@@ -1557,3 +1557,36 @@ do
 	for _, sl in ipairs(r.slots or {}) do if sl.id == fcid(MINUS, 0, 1, 1, hi + 3) then has = true end end
 	print((#fail > 0 and "FAIL " or "") .. "bay continuation", bus, stubs, table.concat(fail, ", "))
 end
+
+-- under-viaduct shop skin: two units per long edge of every elevated block, inside the block
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2 })
+	local function count(skin)
+		m[layout.encode(K.UNDER, G, 0, 0)] = layout.moduleName(skin)
+		local r = build({ modulesByName = m })
+		local n, bad = 0, 0
+		for _, mdl in ipairs(r.cargoStation.models) do
+			if mdl.id:match("c_pillar_small_rep_m") then n = n + 1 end
+			for i = 1, 16 do if mdl.transf[i] ~= mdl.transf[i] then bad = bad + 1 end end
+		end
+		return n, bad, nIgnored(r)
+	end
+	local a, _, _ = count("jpst_underviaduct_pillars")
+	local b, bad, ign = count("jpst_underviaduct_shops")
+	-- 2 edges x 2 ranges x 2 crossed pieces per elevated block
+	print((b - a ~= 8 or bad > 0 or ign > 0) and "FAIL " or "", "under shops", b - a, bad, ign)
+end
+
+-- under-viaduct exits = false: no linkable street exit
+do
+	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_trackType = 2, jpst_catenary = 2, jpst_level = 2 })
+	local function linkables(modName)
+		m[layout.encode(K.UNDER, G, 0, 0)] = modName
+		local r = build({ modulesByName = m })
+		local n = 0
+		for _, ll in ipairs(r.cargoStation.laneLists) do if ll.linkable then n = n + 1 end end
+		return n
+	end
+	local a, b = linkables(layout.moduleName("jpst_underviaduct_pillars")), linkables(layout.moduleName("jpst_underviaduct_closed"))
+	print(((a - b == 1) and "" or "FAIL ") .. "under exits", a, b)
+end

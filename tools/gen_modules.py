@@ -748,6 +748,16 @@ UNDER_BEAMS = f'''{{
 					{{ id = "{UNDER_PILLAR}", transf = {{ 0, 0, 1 / 2.112, 0, 1 / 3, 0, 0, 0, 0, 1 / 4, 0, 0, 0, -0.5, -0.5, 1 }} }},
 				}},
 			}}'''
+# shop unit: unit cube X 0..1, Y 0..1, Z 0..1 (two crossed pieces), scaled by the update script.
+# Gaps at y = 0 +-8 keep the cross lane and the street exits free.
+UNDER_SHOPS = f'''{{
+				models = {{
+					{{ id = "{UNDER_PILLAR}", transf = {{ 1 / 2.112, 0, 0, 0, 0, 1 / 3, 0, 0, 0, 0, 1 / 4, 0, 0.5, 0, 0, 1 }} }},
+					{{ id = "{UNDER_PILLAR}", transf = {{ 0, 1 / 2.112, 0, 0, -1 / 3, 0, 0, 0, 0, 0, 1 / 4, 0, 1, 0.5, 0, 1 }} }},
+				}},
+				depth = 2.5, height = 3.5,
+				ranges = {{ {{ -19.5, -8.5 }}, {{ 8.5, 19.5 }} }},
+			}}'''
 UNDER_SKINS = {
     "viaduct": dict(columns=UNDER_COLUMNS, beams=UNDER_BEAMS, exitModels=[], price=40000, order=20),
     "pillars": dict(
@@ -761,6 +771,17 @@ UNDER_SKINS = {
         ],
         price=80000,
     ),
+    "closed": dict(columns=UNDER_COLUMNS, beams=UNDER_BEAMS, exitModels=[], exits=False, price=40000, order=23),
+    "shops": dict(
+        columns=UNDER_COLUMNS,
+        beams=UNDER_BEAMS,
+        shops=UNDER_SHOPS,
+        order=22,
+        exitModels=[
+            (TICKETS, 3.5, 2.5, -90), (TICKETS, 3.5, 3.6, -90), (TICKETS, -3.5, 2.5, 90), (TICKETS, -3.5, 3.6, 90),
+        ],
+        price=120000,
+    ),
 }
 
 
@@ -769,13 +790,15 @@ def gen_underviaduct():
         models = "\n".join(f'\t\t\t\t{{ id = "{i}", x = {x}, y = {y}, rotZ = {r} }},' for i, x, y, r in d["exitModels"])
         key = skin.upper()
         price = d["price"]
+        shops_line = ("\n\t\t\t\texits = false," if d.get("exits") is False else "") + (
+            f"\n\t\t\t\tshops = {d['shops']}," if "shops" in d else "")
         params = f'''{{
 				columns = {d["columns"]},
 				beams = {d["beams"]},
 				exitModels = {{
 {models}
 				}},
-				hallModels = {{}},
+				hallModels = {{}},{shops_line}
 			}}'''
         write(f"jpst_underviaduct_{skin}", HEADER + f'''function data()
 	return {{

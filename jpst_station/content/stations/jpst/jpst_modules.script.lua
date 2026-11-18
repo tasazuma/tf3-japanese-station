@@ -577,9 +577,14 @@ end
 --             on inner row boundaries at least minGap apart;
 --   beams = { models = { { id, transf }, ... }, ys }: a transverse beam per ys across each elevated block;
 --             its models span X 0..1 (stretched to the block width) and hang from the deck bottom (z = 0);
+--   exits = false: no street exits at all (no lane, paving or exitModels), e.g. for a walled hall;
 --   exitModels = models at every street exit, building frame: origin at the row edge (segment centre),
 --             +X along the tracks, -Y out of the station;
---   hallModels = models per elevated block, relative to its centre (station X, segment-local Y).
+--   hallModels = models per elevated block, relative to its centre (station X, segment-local Y);
+--   shops = { models = { { id, transf }, ... }, depth, height, ranges = { { y0, y1 }, ... } }: shop units along
+--             both long edges of each elevated block, one per range (segment-local Y); the models span the
+--             unit cube X 0..1 (across the edge), Y 0..1 (along it), Z 0..1 and are scaled to depth x length x
+--             height, standing on the ground.
 
 local UNDER_EXIT_RUN = 4 -- paved exit outside the row edge; its far end is the linkable street lane
 local UNDER_COLUMN_INSET = 0.5
@@ -635,6 +640,19 @@ local function updateUnderViaduct(captureParams, result, transform, tag, slotId,
 			end
 		end
 
+		local shops = cfg.shops
+		if shops then
+			local d, hgt = shops.depth or 2.5, shops.height or 3.5
+			for _, part in ipairs(skinParts(shops)) do
+				for _, xa in ipairs({ x0, x1 - d }) do
+					for _, r in ipairs(shops.ranges or {}) do
+						local S = { d, 0, 0, 0, 0, r[2] - r[1], 0, 0, 0, 0, hgt, 0, xa, r[1], 0, 1 }
+						addModelTo(cs.models, part.id, T, mul16(S, part.transf), tag)
+					end
+				end
+			end
+		end
+
 		local C = transf.mul(T, transf.transl(vec3.new((x0 + x1) / 2, 0, 0)))
 		for _, m in ipairs(cfg.hallModels or {}) do
 			local id, t = buildingModelTransf(m)
@@ -644,7 +662,7 @@ local function updateUnderViaduct(captureParams, result, transform, tag, slotId,
 		-- public exits on the outer sides of the station without a building
 		for _, side in ipairs({ layout.SIDE.MINUS_X, layout.SIDE.PLUS_X }) do
 			local outer = (side == layout.SIDE.MINUS_X) and b.first == s.minRow or (side == layout.SIDE.PLUS_X and b.last == s.maxRow)
-			if outer and not L.buildingAt[side][seg] then
+			if outer and cfg.exits ~= false and not L.buildingAt[side][seg] then
 				local dir = (side == layout.SIDE.MINUS_X) and -1 or 1
 				local xEdge = (dir < 0) and x0 or x1
 				local xFoot = xEdge + dir * UNDER_EXIT_RUN
