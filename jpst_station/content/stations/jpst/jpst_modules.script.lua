@@ -799,7 +799,7 @@ local function updateForecourt(captureParams, result, transform, tag, slotId, ad
 	local C = layout.FORECOURT_CELL
 	local w, h = f.w, f.h
 	local hx, hy = w * C / 2, h * C / 2
-	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h, f.level)
 	local modes = cfg.ground or FORECOURT_GROUND
 	local align = cfg.terrain or "EQUAL"
 
@@ -894,7 +894,7 @@ local function updateBusRotary(captureParams, result, transform, tag, slotId, ad
 	local w, h = f.w, f.h
 	local g = layout.rotaryGeometry(w, h)
 	local hx, hy = g.hx, g.hy
-	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h, f.level)
 	local align = cfg.terrain or "EQUAL"
 	local sidewalk = cfg.sidewalkGround or ROTARY_SIDEWALK
 
@@ -1037,7 +1037,7 @@ local function updateBusBay(captureParams, result, transform, tag, slotId, addMo
 	local kerbY, stopY, walkY = hy - R.SIDEWALK, hy - R.STOP, hy - R.WALK
 	local roadY = stopY - 2.5
 	local stopX = hx - BAY_STUB
-	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h, f.level)
 	local align = cfg.terrain or "EQUAL"
 
 	addBox(cs, transform, -hx, roadY - 3.5, hx, kerbY, nil, align, cfg.ground or ROTARY_GROUND)
@@ -1184,7 +1184,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 	local C = layout.FORECOURT_CELL
 	local w, h = f.w, f.h
 	local hx, hy = w * C / 2, h * C / 2
-	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h)
+	transform = layout.forecourtTransf(L, f.side, f.seg, f.d, w, h, f.level)
 	local structure = cfg.structure ~= false
 	local ww = math.max(3, math.min(10, cfg.walkWidth or 8))
 	local pattern = cfg.lanes or "cross"
@@ -1220,7 +1220,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 		local pts = { { -hx, y, DZ } }
 		for _, x in ipairs(xs) do pts[#pts + 1] = { x, y, DZ } end
 		pts[#pts + 1] = { hx, y, DZ }
-		layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+		layout.addLane(cs, pts, LANE_WIDTH, true, transform)
 		beam({ -hx, y, DZ }, { hx, y, DZ }, ww)
 	end end
 	for s = f.seg, f.seg + w - 1 do
@@ -1229,7 +1229,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 			local pts = { { x, -hy, DZ } }
 			for _, y in ipairs(ys) do pts[#pts + 1] = { x, y, DZ } end
 			pts[#pts + 1] = { x, hy, DZ }
-			layout.addLane(cs, pts, LANE_WIDTH, false, transform)
+			layout.addLane(cs, pts, LANE_WIDTH, true, transform)
 			-- split around the crossing walkways so the stretched pieces do not overlap (z-fighting)
 			local y0 = -hy
 			for _, y in ipairs(ys) do
@@ -1239,7 +1239,7 @@ local function updateDeck(captureParams, result, transform, tag, slotId, addMode
 			end
 			if hy - y0 > 0.01 then beam({ x, y0, DZ }, { x, hy, DZ }, ww) end
 		end
-		if f.d == 0 then
+		if f.d == 0 and L.buildingAt[f.side][s] then
 			-- into the station: over the gap to a shallower building, then through the building at 2F
 			local b = L.buildings[L.buildingAt[f.side][s]]
 			local yBack = hy + layout.forecourtGap(L, f.side, s)

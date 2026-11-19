@@ -215,14 +215,14 @@ local function addSlots(result, L, modules)
 	for _, level in ipairs({ GROUND, layout.LEVEL.ELEVATED }) do
 		local z = (level == GROUND) and 0 or layout.DECK_Z
 		for _, side in ipairs({ layout.SIDE.MINUS_X, layout.SIDE.PLUS_X }) do
-			for seg, _ in pairs(L.buildingAt[side]) do
+			for seg, _ in pairs(level == GROUND and L.buildingAt[side] or L.segs) do
 				for d = 0, layout.FORECOURT_ROWS - 1 do
 					for h = 1, layout.FORECOURT_ROWS - d do
 						for w = 1, layout.MAX_FORECOURT_W do
 							local id = layout.encode(KIND.FORECOURT, level, layout.forecourtRow(side, d, w, h), seg)
 							if layout.forecourtFits(L, side, d, w, h, seg, id, level) then
 								local hx, hy = w * C / 2 - 0.5, h * C / 2 - 0.5
-								local tf = transf.mul(transf.transl(vec3.new(0, 0, z)), layout.forecourtTransf(L, side, seg, d, w, h))
+								local tf = transf.mul(transf.transl(vec3.new(0, 0, z)), layout.forecourtTransf(L, side, seg, d, w, h, level))
 								addSlot(id, tf, layout.forecourtSlotType(w, h, level), { hx, hx, hy, hy })
 							end
 						end

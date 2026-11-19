@@ -643,6 +643,7 @@ local function blockedBuildingSlots(m, r)
 			for _, o in ipairs(occ) do
 				local bx0, bx1, by0, by1, bz = slotBox(o)
 				if math.abs(az - bz) < 1 and math.min(ax1, bx1) - math.max(ax0, bx0) > 1e-3 and math.min(ay1, by1) - math.max(ay0, by0) > 1e-3 then
+					if os.getenv("DBG") then print("DBG", s.id, s.type, o.id, o.type, az, bz) end
 					bad = bad + 1
 					break
 				end
@@ -706,7 +707,7 @@ local function fcCheck(label, m, expectIgnored, expectUnreachable)
 	local term = compOfLane(r.cargoStation.station.terminals[1].personEdges[1][1] + 1)
 	local cells, bad = 0, 0
 	for id, f in pairs(L.forecourts) do
-		local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+		local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h, f.level)
 		for i = 0, f.w - 1 do for j = 0, f.h - 1 do
 			local lx, ly = -f.w * 20 + 20 + 40 * i, -f.h * 20 + 20 + 40 * j
 			local x, y = tf[1] * lx + tf[5] * ly + tf[13], tf[2] * lx + tf[6] * ly + tf[14]
@@ -785,6 +786,7 @@ local function blockedSlots(m, r, pattern)
 			for _, o in ipairs(occ) do
 				local bx0, bx1, by0, by1, bz = slotBox(o)
 				if math.abs(az - bz) < 1 and math.min(ax1, bx1) - math.max(ax0, bx0) > 1e-3 and math.min(ay1, by1) - math.max(ay0, by0) > 1e-3 then
+					if os.getenv("DBG") then print("DBG", s.id, s.type, o.id, o.type, az, bz) end
 					bad = bad + 1
 					break
 				end
@@ -848,7 +850,7 @@ local function nodesAt(r, x, y, z)
 end
 -- world point of a local forecourt-frame point
 local function fcWorld(L, f, lx, ly)
-	local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+	local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h, f.level)
 	return tf[1] * lx + tf[5] * ly + tf[13], tf[2] * lx + tf[6] * ly + tf[14]
 end
 -- a) ground + 2F concourse + small building: deck 1x1 over a paved 1x1; the deck joins the concourse at
@@ -914,11 +916,11 @@ do
 	m[dkid(MINUS, 0, 2, 2, -1)] = DECK(2, 2)
 	fcCheck("elevated decks both sides", m, 0)
 end
--- e) ignored: no building on that side / two decks overlapping; a deck over a plaza is fine
+-- e) a deck needs no building; two decks overlapping; a deck over a plaza is fine
 do
 	local m = script.createTemplateFn({}, { jpst_length = 3, jpst_tracks = 2 })
 	m[dkid(PLUS, 0, 1, 1, 0)] = DECK(1, 1)
-	fcCheck("deck on side without building", m, 1)
+	fcCheck("deck without building", m, 0, 1)
 	local m2 = script.createTemplateFn({}, { jpst_building = 2, jpst_length = 3, jpst_tracks = 2 })
 	m2[dkid(MINUS, 0, 2, 2, -1)] = DECK(2, 2)
 	m2[dkid(MINUS, 1, 1, 1, 0)] = DECK(1, 1)
@@ -1013,7 +1015,7 @@ local function rotCheck(label, m, expectStops, expectIgnored)
 		if m[id] and m[id]:match("busrotary") then
 			placed = placed + 1
 			local g = layout.rotaryGeometry(f.w, f.h)
-			local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h)
+			local tf = layout.forecourtTransf(L, f.side, f.seg, f.d, f.w, f.h, f.level)
 			local found = false
 			for _, el in ipairs(r.edgeLists) do
 				if el.type == "STREET" then

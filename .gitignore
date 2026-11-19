@@ -5,3 +5,6 @@
 # offline test: vanilla scripts extracted by tools/test/setup.sh
 tools/test/.vanilla/
 __pycache__/
+
+# 2048px textures generated from model/*.png by tools/gen_models.py (75 MB)
+jpst_station/content/stations/jpst/perron/mat/tex/*_jp_*.tga

@@ -3,34 +3,50 @@ return {
 	subMeshes = {
 		{
 			indices = {
-				normal = { count = 24, offset = 1392, },
-				position = { count = 24, offset = 1344, },
-				tangent = { count = 24, offset = 1416, },
-				uv0 = { count = 24, offset = 1368, },
+				normal = { count = 24, offset = 83568, },
+				position = { count = 24, offset = 83520, },
+				tangent = { count = 24, offset = 83592, },
+				uv0 = { count = 24, offset = 83544, },
 			},
 		},
 		{
 			indices = {
-				normal = { count = 96, offset = 1632, },
-				position = { count = 96, offset = 1440, },
-				tangent = { count = 96, offset = 1728, },
-				uv0 = { count = 96, offset = 1536, },
+				normal = { count = 24, offset = 83664, },
+				position = { count = 24, offset = 83616, },
+				tangent = { count = 24, offset = 83688, },
+				uv0 = { count = 24, offset = 83640, },
 			},
 		},
 		{
 			indices = {
-				normal = { count = 48, offset = 1920, },
-				position = { count = 48, offset = 1824, },
-				tangent = { count = 48, offset = 1968, },
-				uv0 = { count = 48, offset = 1872, },
+				normal = { count = 24, offset = 83760, },
+				position = { count = 24, offset = 83712, },
+				tangent = { count = 24, offset = 83784, },
+				uv0 = { count = 24, offset = 83736, },
+			},
+		},
+		{
+			indices = {
+				normal = { count = 4800, offset = 93408, },
+				position = { count = 4800, offset = 83808, },
+				tangent = { count = 4800, offset = 98208, },
+				uv0 = { count = 4800, offset = 88608, },
+			},
+		},
+		{
+			indices = {
+				normal = { count = 2112, offset = 107232, },
+				position = { count = 2112, offset = 103008, },
+				tangent = { count = 2112, offset = 109344, },
+				uv0 = { count = 2112, offset = 105120, },
 			},
 		},
 	},
 	vertexAttr = {
-		normal = { count = 336, numComp = 3, offset = 560, },
-		position = { count = 336, numComp = 3, offset = 0, },
-		tangent = { count = 448, numComp = 4, offset = 896, },
-		uv0 = { count = 224, numComp = 2, offset = 336, },
+		normal = { count = 20880, numComp = 3, offset = 34800, },
+		position = { count = 20880, numComp = 3, offset = 0, },
+		tangent = { count = 27840, numComp = 4, offset = 55680, },
+		uv0 = { count = 13920, numComp = 2, offset = 20880, },
 	},
 }
 end

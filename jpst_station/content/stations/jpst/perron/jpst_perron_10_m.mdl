@@ -17,7 +17,7 @@ return {
 				node = {
 					children = {
 						{
-							materials = { "mat/jpst_platform_floor.mtl", "mat/jpst_platform_edge.mtl", "mat/jpst_platform_tactile.mtl", },
+							materials = { "mat/jpst_platform_floor.mtl", "mat/jpst_platform_edge.mtl", "mat/jpst_platform_tactile.mtl", "mat/jpst_platform_edge_jp.mtl", "mat/jpst_platform_base_jp.mtl", },
 							mesh = "msh/jpst_perron_10_m_lod0.msh",
 							name = "perron_10",
 							transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, },

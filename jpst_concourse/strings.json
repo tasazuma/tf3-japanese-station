@@ -1,0 +1,4 @@
+{
+	"en": { "JPST_CC_NAME": "Connecting walkway (experiment)", "JPST_CC_DESC": "Pedestrian slope walkway joining two stations at different heights.", "JPST_CC_WIDTH": "Width", "JPST_CC_LEN": "Length", "JPST_CC_RISE": "Height difference" },
+	"ja": { "JPST_CC_NAME": "連絡通路（実験）", "JPST_CC_DESC": "高さの違う2駅をつなぐ歩行者用スロープ通路。", "JPST_CC_WIDTH": "幅", "JPST_CC_LEN": "長さ", "JPST_CC_RISE": "高低差" }
+}

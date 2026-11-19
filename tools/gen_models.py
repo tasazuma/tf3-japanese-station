@@ -8,8 +8,12 @@ floats; every offset and count is in bytes; one uint32 index list per attribute 
 import math
 import re
 import struct
+import sys
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fbx_read
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "jpst_station/content/stations/jpst/perron"
@@ -20,6 +24,11 @@ HALF = 2.5          # half width of the platform (same envelope as the vanilla p
 TOP = 1.1           # platform surface height above the track bed
 EDGE = 0.4          # bright concrete strip between the platform edge and the tactile paving
 BLOCK = 0.3         # tactile paving width (JIS T 9251 guideline: about 30 cm)
+EDGE_FBX = ROOT / "model/platform_edge.fbx"   # hand-made edge piece (20 m, outer lip at y=-0.6, inner side y=0)
+BASE_FBX = ROOT / "model/platform_base.fbx"   # hand-made platform body (20 m x 4 m, top at z=1.1)
+BASE_W = 4.0
+EDGE_PIECE_L = 20.0
+EDGE_PIECE_W = 0.6
 FLOOR_TILE = 1.2    # floor texture repeat (m)
 EDGE_TILE = 1.0     # concrete texture repeat (m)
 
@@ -118,6 +127,36 @@ def tex_yellow(n=64):
         hm.append(rh)
         mga.append(rm)
     return alb, normal_from_height(hm, 4.0), mga
+
+
+def _png_set(paths):
+    from PIL import Image
+
+    def rows(img):
+        w, h = img.size
+        px = img.load()
+        return [[px[x, y] for x in range(w)] for y in range(h)]
+    alb = Image.open(paths[0]).convert("RGB")
+    nrm = Image.open(paths[1]).convert("RGB")
+    rgh = Image.open(paths[2]).convert("L").resize(alb.size)
+    rp = rgh.load()
+    w, h = alb.size
+    mga = [[(0, 255 - rp[x, y], 255) for x in range(w)] for y in range(h)]
+    return rows(alb), rows(nrm), mga
+
+
+def tex_edge_piece():
+    """Textures from model/platform_edge_{albedo,normal,roughness}.png; plain concrete until the files exist."""
+    paths = [ROOT / f"model/platform_edge_{k}.png" for k in ("albedo", "normal", "roughness")]
+    return _png_set(paths) if all(q.exists() for q in paths) else tex_edge()
+
+
+def tex_base_piece():
+    """Same as tex_edge_piece for model/platform_base_*.png; falls back to the generic platform floor."""
+    paths = [ROOT / f"model/platform_base_{k}.png" for k in ("albedo", "normal", "roughness")]
+    if not all(q.exists() for q in paths):
+        return tex_floor()
+    return _png_set(paths)
 
 
 def write_texture_set(name, tex):
@@ -283,14 +322,120 @@ def stair_well(m, x0, d, yc=0.0):
 SIDE_SUFFIX = {(True, True): "", (True, False): "_p", (False, True): "_m", (False, False): "_n"}
 
 
+
+# ---------------------------------------------------------------- imported edge piece
+
+def load_edge_piece(path=EDGE_FBX):
+    """Triangles ((pos, uv) x3) of an FBX piece, or None when the file is missing."""
+    if not path.exists():
+        return None
+    g = fbx_read.geometries(str(path))[0]
+    uvs, uvidx = g["uvl"]
+    tris, k = [], 0
+    for poly in g["polys"]:
+        corners = []
+        for vi in poly:
+            u = uvidx[k] if uvidx else k
+            corners.append((g["pos"][vi], (uvs[2 * u], uvs[2 * u + 1])))
+            k += 1
+        for i in range(1, len(corners) - 1):
+            tris.append((corners[0], corners[i], corners[i + 1]))
+    return tris
+
+
+def add_edge_piece(m, tris, cx, side, H):
+    """Adds one copy of the edge piece centred at x=cx on the +y (side=1) or -y (side=-1) platform edge."""
+    add_piece(m, tris, cx, lambda y: (H - EDGE_PIECE_W - y) if side == 1 else (-H + EDGE_PIECE_W + y), side == 1)
+
+
+def _clip(poly, axis, val, keep_low):
+    """Sutherland-Hodgman clip of a polygon [(pos, uv)] to pos[axis] <= val (keep_low) or >= val."""
+    def inside(v):
+        return v[0][axis] <= val if keep_low else v[0][axis] >= val
+    out = []
+    for i, cur in enumerate(poly):
+        prv = poly[i - 1]
+        if inside(cur) != inside(prv):
+            t = (val - prv[0][axis]) / (cur[0][axis] - prv[0][axis])
+            out.append((tuple(prv[0][k] + t * (cur[0][k] - prv[0][k]) for k in range(3)),
+                        tuple(prv[1][k] + t * (cur[1][k] - prv[1][k]) for k in range(2))))
+        if inside(cur):
+            out.append(cur)
+    return out
+
+
+def _minus_rect(poly, rect):
+    """Pieces of a convex polygon outside rect = (xa, xb, ya, yb)."""
+    xa, xb, ya, yb = rect
+    pieces = []
+    rest = poly
+    for axis, val, low in ((0, xa, True), (0, xb, False), (1, ya, True), (1, yb, False)):
+        if len(rest) < 3:
+            break
+        out = _clip(rest, axis, val, low)
+        if len(out) >= 3:
+            pieces.append(out)
+        rest = _clip(rest, axis, val, not low)
+    return pieces
+
+
+def add_piece(m, tris, cx, ymap, flip, holes=()):
+    """Adds a piece shifted to x=cx with its y coordinates remapped by ymap (flip when ymap mirrors).
+    holes: rectangles (xa, xb, ya, yb) in final coordinates that are cut out of the piece."""
+    polys = []
+    for tri in tris:
+        pts = []
+        for (x, y, z), uv in tri:
+            pts.append(((x + cx, ymap(y), z), uv))
+        if flip:
+            pts = [pts[0], pts[2], pts[1]]  # mirroring flips the winding
+        cur = [pts]
+        for r in holes:
+            cur = [q for poly in cur for q in _minus_rect(poly, r)]
+        polys += cur
+    for poly in polys:
+      for i in range(1, len(poly) - 1):
+        pts = [poly[0], poly[i], poly[i + 1]]
+        (a, ua), (b, ub), (c, uc) = pts
+        e1 = [b[i] - a[i] for i in range(3)]
+        e2 = [c[i] - a[i] for i in range(3)]
+        n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        nl = math.sqrt(sum(v * v for v in n))
+        if nl < 1e-12:
+            continue
+        n = tuple(v / nl for v in n)
+        du1, dv1 = ub[0] - ua[0], ub[1] - ua[1]
+        du2, dv2 = uc[0] - ua[0], uc[1] - ua[1]
+        det = du1 * dv2 - du2 * dv1
+        if abs(det) < 1e-12:
+            t = (1.0, 0.0, 0.0)
+        else:
+            t = tuple((e1[i] * dv2 - e2[i] * dv1) / det for i in range(3))
+            tl = math.sqrt(sum(v * v for v in t)) or 1.0
+            t = tuple(v / tl for v in t)
+        base = len(m.pos)
+        for (pos, uv) in pts:
+            m.pos.append(pos)
+            m.uv.append(uv)
+            m.nrm.append(n)
+            m.tan.append(t + (1.0,))
+        m.subs[-1] += [base, base + 1, base + 2]
+
+
 def build_platform_mesh(stairs=False, half=HALF, yc=0.0, sides=(True, True)):
     m = Mesh()
     L, H, T = LENGTH, half, TOP
     ye = H - EDGE            # inner limit of the bright concrete strip
     yb = ye - BLOCK          # inner limit of the tactile paving
-    top = yb if sides[0] else H
-    bot = -yb if sides[1] else -H
+    edge_tris = load_edge_piece()
+    if edge_tris:
+        top = H - EDGE_PIECE_W if sides[0] else H
+        bot = -(H - EDGE_PIECE_W) if sides[1] else -H
+    else:
+        top = yb if sides[0] else H
+        bot = -yb if sides[1] else -H
 
+    base_tris = load_edge_piece(BASE_FBX) if edge_tris else None
     # 0: floor
     m.submesh()
 
@@ -298,7 +443,9 @@ def build_platform_mesh(stairs=False, half=HALF, yc=0.0, sides=(True, True)):
         m.quad([(xa, ya, T), (xb, ya, T), (xb, yb_, T), (xa, yb_, T)],
                [(xa / FLOOR_TILE, ya / FLOOR_TILE), (xb / FLOOR_TILE, ya / FLOOR_TILE),
                 (xb / FLOOR_TILE, yb_ / FLOOR_TILE), (xa / FLOOR_TILE, yb_ / FLOOR_TILE)], (0, 0, 1), (1, 0, 0))
-    if stairs:
+    if base_tris:
+        m.quad([(0, 0, 0), (0.1, 0, 0), (0.1, 0.1, 0), (0, 0.1, 0)], [(0, 0)] * 4, (0, 0, 1), (1, 0, 0))
+    elif stairs:
         cur = 0.0
         for hx in HOLE_X:
             floor(cur, hx, bot, top)
@@ -311,28 +458,55 @@ def build_platform_mesh(stairs=False, half=HALF, yc=0.0, sides=(True, True)):
     # 1: bright concrete strips on both edges + both side walls
     m.submesh()
     for s in (1, -1):
-        if not sides[0 if s == 1 else 1]:
+        if not sides[0 if s == 1 else 1] or edge_tris:
             continue
         y0, y1 = (ye, H) if s == 1 else (-H, -ye)
         m.quad([(0, y0, T), (L, y0, T), (L, y1, T), (0, y1, T)],
                [(0, y0 / EDGE_TILE), (L / EDGE_TILE, y0 / EDGE_TILE),
                 (L / EDGE_TILE, y1 / EDGE_TILE), (0, y1 / EDGE_TILE)], (0, 0, 1), (1, 0, 0))
-    m.quad([(L, H, 0), (0, H, 0), (0, H, T), (L, H, T)],
-           [(0, 0), (L / EDGE_TILE, 0), (L / EDGE_TILE, T / EDGE_TILE), (0, T / EDGE_TILE)], (0, 1, 0), (-1, 0, 0))
-    m.quad([(0, -H, 0), (L, -H, 0), (L, -H, T), (0, -H, T)],
-           [(0, 0), (L / EDGE_TILE, 0), (L / EDGE_TILE, T / EDGE_TILE), (0, T / EDGE_TILE)], (0, -1, 0), (1, 0, 0))
+    if not (edge_tris and sides[0]):
+        m.quad([(L, H, 0), (0, H, 0), (0, H, T), (L, H, T)],
+               [(0, 0), (L / EDGE_TILE, 0), (L / EDGE_TILE, T / EDGE_TILE), (0, T / EDGE_TILE)], (0, 1, 0), (-1, 0, 0))
+    if not (edge_tris and sides[1]):
+        m.quad([(0, -H, 0), (L, -H, 0), (L, -H, T), (0, -H, T)],
+               [(0, 0), (L / EDGE_TILE, 0), (L / EDGE_TILE, T / EDGE_TILE), (0, T / EDGE_TILE)], (0, -1, 0), (1, 0, 0))
+    if edge_tris and all(sides):
+        m.quad([(0, 0, 0), (0.1, 0, 0), (0.1, 0.1, 0), (0, 0.1, 0)], [(0, 0)] * 4, (0, 0, 1), (1, 0, 0))
     # 2: tactile paving; u runs from the outer edge to the platform inside, v along x
     m.submesh()
     n = L / BLOCK
-    if sides[0]:
+    if edge_tris:
+        sides_t = (False, False)
+    else:
+        sides_t = sides
+    if sides_t[0]:
         m.quad([(0, yb, T), (L, yb, T), (L, ye, T), (0, ye, T)],
                [(1, 0), (1, n), (0, n), (0, 0)], (0, 0, 1), (0, -1, 0))
-    if sides[1]:
+    if sides_t[1]:
         m.quad([(0, -ye, T), (L, -ye, T), (L, -yb, T), (0, -yb, T)],
                [(0, 0), (0, n), (1, n), (1, 0)], (0, 0, 1), (0, 1, 0))
-    if not any(sides):
+    if not any(sides_t):
         # keep the submesh non-empty; the quad is buried inside the platform
         m.quad([(0, 0, 0), (0.1, 0, 0), (0.1, 0.1, 0), (0, 0.1, 0)], [(0, 0)] * 4, (0, 0, 1), (1, 0, 0))
+    if edge_tris:
+        # 3: the hand-made edge piece (outer lip, bright strip and tactile paving), two 20 m copies per side
+        m.submesh()
+        for side in (1, -1):
+            if sides[0 if side == 1 else 1]:
+                for cx in (EDGE_PIECE_L / 2, L - EDGE_PIECE_L / 2):
+                    add_edge_piece(m, edge_tris, cx, side, H)
+        if not m.subs[-1]:
+            m.quad([(0, 0, 0), (0.1, 0, 0), (0.1, 0.1, 0), (0, 0.1, 0)], [(0, 0)] * 4, (0, 0, 1), (1, 0, 0))
+    if edge_tris and BASE_FBX.exists():
+        # 4: the hand-made body, squeezed in y to fill the space between the edge pieces (stairwell openings are cut out)
+        m.submesh()
+        k, mid = (top - bot) / BASE_W, (top + bot) / 2
+        holes = [(hx, hx + HOLE_L, yc - HOLE_W, yc + HOLE_W) for hx in HOLE_X] if stairs else []
+        for cx in (EDGE_PIECE_L / 2, L - EDGE_PIECE_L / 2):
+            if base_tris:
+                add_piece(m, base_tris, cx, lambda y: mid + y * k, False, holes)
+        if not base_tris:
+            m.quad([(0, 0, 0), (0.1, 0, 0), (0.1, 0.1, 0), (0, 0.1, 0)], [(0, 0)] * 4, (0, 0, 1), (1, 0, 0))
     return m
 
 
@@ -674,15 +848,22 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     textures = {"jpst_platform_floor": tex_floor(), "jpst_platform_edge": tex_edge(),
                 "jpst_platform_tactile": tex_yellow(),
+                "jpst_platform_edge_jp": tex_edge_piece(),
+                "jpst_platform_base_jp": tex_base_piece(),
                 "jpst_concourse_floor": tex_concourse(),
                 "jpst_pdoor": tex_pdoor()}
     for name, tex in textures.items():
         write_texture_set(name, tex)
         (OUT / f"mat/{name}.mtl").write_text(MTL % {"n": name})
-    build_platform_mesh().write(OUT / "msh/jpst_perron_5_lod0.msh")
-    (OUT / "jpst_perron_5.mdl").write_text(
-        build_mdl(vanilla_mdl(), ["jpst_platform_floor", "jpst_platform_edge", "jpst_platform_tactile"]))
     mt = ["jpst_platform_floor", "jpst_platform_edge", "jpst_platform_tactile"]
+    if EDGE_FBX.exists():
+        mt.append("jpst_platform_edge_jp")
+        if BASE_FBX.exists():
+            mt.append("jpst_platform_base_jp")
+    for sides, suf in SIDE_SUFFIX.items():
+        build_platform_mesh(sides=sides).write(OUT / f"msh/jpst_perron_5{suf}_lod0.msh")
+        (OUT / f"jpst_perron_5{suf}.mdl").write_text(
+            build_mdl(vanilla_mdl(), mt, f"jpst_perron_5{suf}_lod0") if suf else build_mdl(vanilla_mdl(), mt))
     # script x = -mesh y, so the stairs half of a 10 m platform (script x = -2.5) is at mesh y = +2.5
     for name, vname, stairs, half, yc in (
             ("jpst_perron_5_underpass", "perron_5", True, HALF, 0.0),

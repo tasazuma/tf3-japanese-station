@@ -1,0 +1,8 @@
+{
+	"authors": [ { "name": "tasazuma", "role": "CREATOR" } ],
+	"description": "Experimental pedestrian link (slope walkway) between separate stations at different heights.",
+	"name": "JP Station - Connecting Concourse (experiment)",
+	"summary": "Walkway joining two stations",
+	"tags": [ "Station" ],
+	"url": "https://github.com/tasazuma/tf3-japanese-station"
+}

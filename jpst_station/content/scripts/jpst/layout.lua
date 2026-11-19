@@ -163,6 +163,7 @@ function layout.compute(modules)
 		forecourtAt = { [0] = {}, [1] = {} }, -- forecourtAt[side][d][seg] = slotId (1F)
 		deckAt = { [0] = {}, [1] = {} },      -- deckAt[side][d][seg] = slotId (deck, level 1)
 		forecourtBase = {}, -- [side] = X where forecourt row 0 starts (outermost building back), nil = no building
+		deckBase = {},      -- [side] = like forecourtBase for pedestrian decks; without a building the outermost row edge
 		ignored = {},    -- [slotId] = true: module kept in its slot but not built (level conflict, orphan building)
 		segs = {},       -- [seg] = { minRow, maxRow }
 		minRow = 0, maxRow = 0, minSeg = 0, maxSeg = 0,
@@ -310,6 +311,20 @@ function layout.compute(modules)
 			L.forecourtBase[b.side] = b.back
 		end
 	end
+	for side = 0, 1 do
+		local base = L.forecourtBase[side]
+		if base == nil then
+			for seg in pairs(L.segs) do
+				local xL, xR = layout.segEdges(L, seg)
+				if side == layout.SIDE.MINUS_X then
+					base = base and math.min(base, xL) or xL
+				else
+					base = base and math.max(base, xR) or xR
+				end
+			end
+		end
+		L.deckBase[side] = base
+	end
 
 	-- A forecourt module needs a building on its side in every column it covers and must stay inside
 	-- the forecourt grid without overlapping another forecourt module (lowest slot id wins).
@@ -395,6 +410,9 @@ function layout.forecourtFits(L, side, d, w, h, seg, selfId, level, ext)
 	local anchored = false
 	for s = seg, seg + w - 1 do
 		if L.buildingAt[side][s] then anchored = true
+		elseif level == layout.LEVEL.ELEVATED then
+			-- a pedestrian deck only needs the station's own columns, not a building
+			if not L.segs[s] or L.concourses[s] then return false end
 		elseif not ext then return false end
 		for dd = d, d + h - 1 do
 			local occ = grid[side][dd] and grid[side][dd][s]
@@ -505,8 +523,8 @@ end
 -- Forecourt frame: origin at the centre of the covered cells, local +X along the tracks, local +Y towards
 -- the station (same orientation as the building frame). Cell row d starts FORECOURT_CELL * d outside the
 -- forecourt base line.
-function layout.forecourtTransf(L, side, seg, d, w, h)
-	local base = L.forecourtBase[side]
+function layout.forecourtTransf(L, side, seg, d, w, h, level)
+	local base = (level == layout.LEVEL.ELEVATED and L.deckBase or L.forecourtBase)[side]
 	if not base then return nil end
 	local C = layout.FORECOURT_CELL
 	local dir = (side == layout.SIDE.MINUS_X) and -1 or 1
