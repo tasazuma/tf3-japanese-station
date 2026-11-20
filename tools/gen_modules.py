@@ -976,6 +976,8 @@ def gen_roofs():
         if name == "jp":
             params = f'''{{
 				roofModel = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl",
+				hangSign = "jpst_station::/stations/jpst/perron/jpst_sign_hang.mdl",
+				trackSign = "jpst_station::/stations/jpst/perron/jpst_track_sign_hang.mdl",
 			}}'''
         else:
             params = f'''{{

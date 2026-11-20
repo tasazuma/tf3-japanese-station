@@ -29,12 +29,16 @@ function data()
 			fileName = "jpst_station::/stations/jpst/jpst_modules.script@roof.updateFn",
 			params = {
 				roofModel = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl",
+				hangSign = "jpst_station::/stations/jpst/perron/jpst_sign_hang.mdl",
+				trackSign = "jpst_station::/stations/jpst/perron/jpst_track_sign_hang.mdl",
 			},
 		},
 		getModelsScript = {
 			fileName = "jpst_station::/stations/jpst/jpst_modules.script@roof.getModelsFn",
 			params = {
 				roofModel = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl",
+				hangSign = "jpst_station::/stations/jpst/perron/jpst_sign_hang.mdl",
+				trackSign = "jpst_station::/stations/jpst/perron/jpst_track_sign_hang.mdl",
 			},
 		},
 		builderAudioRes = "::/gui/construction/sound/buildoze_module.builder_audio",

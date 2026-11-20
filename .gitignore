@@ -8,3 +8,5 @@ __pycache__/
 
 # 2048px textures generated from model/*.png by tools/gen_models.py (75 MB)
 jpst_station/content/stations/jpst/perron/mat/tex/*_jp_*.tga
+jpst_station/content/stations/jpst/perron/mat/tex/jpst_sign_*.tga
+jpst_station/content/stations/jpst/perron/mat/tex/jpst_track_sign_*.tga

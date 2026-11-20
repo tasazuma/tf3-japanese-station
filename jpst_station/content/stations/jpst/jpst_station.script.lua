@@ -415,6 +415,10 @@ local function fillSignLabels(result, L)
 			local m = numberAt(s.row, s.row - 1, s.seg)
 			local p = numberAt(s.row, s.row + 1, s.seg)
 			labelText[s.index] = { m, m, p, p }
+		elseif s.label == "number1" then
+			-- faces point along the track; the sign near a track shows only that track's number
+			local t = numberAt(s.row, s.row + s.side, s.seg)
+			labelText[s.index] = { t, t }
 		elseif s.label == "name" then
 			-- same as vanilla: STATION_NAME labels get the station index, the game draws the name
 			labelText[s.index] = { "0", "0" }
