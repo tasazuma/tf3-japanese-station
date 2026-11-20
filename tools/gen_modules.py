@@ -966,18 +966,24 @@ ROOF_SKINS = [
     ("era_c", "c", 30000, "", 152),
     ("era_c_arm", "c", 40000, f"arms = {ROOF_ARMS},", 153),
     ("era_c_cover", "c", 60000, f"cover = {ROOF_COVER},", 154),
+    ("jp", "c", 35000, "", 155),
 ]
 
 
 def gen_roofs():
     for name, era, price, extra, order in ROOF_SKINS:
         base = f"::/stations/rail/era_{era}/"
-        params = f'''{{
+        if name == "jp":
+            params = f'''{{
+				roofModel = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl",
+			}}'''
+        else:
+            params = f'''{{
 				roofModel = "{base}perron_5_roof.mdl",
 				endModel = "{base}perron_5_roof_end.mdl",
 				{extra}
 			}}'''
-        key = name.upper() if extra else era.upper()
+        key = name.upper() if (extra or name == "jp") else era.upper()
         cover_meta = "\t\t\tjpst_roof_cover = true,\n" if "cover" in extra else ""
         desc = "COVER_" if "cover" in extra else ("ARM_" if extra else "")
         write(f"jpst_roof_{name}", HEADER + f'''function data()

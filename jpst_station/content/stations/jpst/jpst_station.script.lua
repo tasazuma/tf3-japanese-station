@@ -18,7 +18,7 @@ local function brickBuildingName(size)
 end
 local CONCOURSE = layout.moduleName("jpst_concourse")
 local UNDER_VIADUCT = layout.moduleName("jpst_underviaduct_pillars")
-local ROOF = layout.moduleName("jpst_roof_era_c")
+local ROOF = layout.moduleName("jpst_roof_jp")
 local ROOF_SLOT_Z = 4 -- roof slots float at roof height so they do not hide the platform slot
 local STAIRS = layout.moduleName("jpst_stairs_basic")
 local STAIRS_SLOT_Z = 2 -- stairs slots float just above the platform floor

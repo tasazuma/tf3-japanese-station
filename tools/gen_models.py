@@ -27,6 +27,9 @@ BLOCK = 0.3         # tactile paving width (JIS T 9251 guideline: about 30 cm)
 EDGE_FBX = ROOT / "model/platform_edge.fbx"   # hand-made edge piece (20 m, outer lip at y=-0.6, inner side y=0)
 BASE_FBX = ROOT / "model/platform_base.fbx"   # hand-made platform body (20 m x 4 m, top at z=1.1)
 BASE_W = 4.0
+ROOF_FBX = ROOT / "model/platform_roof.fbx"   # hand-made roof slab (20 m x 5 m, z 4.1..4.78)
+PILLAR_FBX = ROOT / "model/roof_pillar.fbx"   # one pair of columns, foot at z=0 (placed on the platform floor)
+PILLAR_XS = (0.0, 20.0, 40.0)   # 20 m spacing, clear of the stairwells (x 10.5-15, 25-29.5); cell ends are shared
 EDGE_PIECE_L = 20.0
 EDGE_PIECE_W = 0.6
 FLOOR_TILE = 1.2    # floor texture repeat (m)
@@ -420,6 +423,26 @@ def add_piece(m, tris, cx, ymap, flip, holes=()):
             m.nrm.append(n)
             m.tan.append(t + (1.0,))
         m.subs[-1] += [base, base + 1, base + 2]
+
+
+def build_roof_mesh():
+    """Two copies of the hand-made roof piece (single submesh)."""
+    tris = load_edge_piece(ROOF_FBX)
+    m = Mesh()
+    m.submesh()
+    for cx in (EDGE_PIECE_L / 2, LENGTH - EDGE_PIECE_L / 2):
+        add_piece(m, tris, cx, lambda y: y, False)
+    pillar = load_edge_piece(PILLAR_FBX)
+    if pillar:
+        lifted = [tuple(((x, y, z + TOP), uv) for (x, y, z), uv in tri) for tri in pillar]
+        for cx in PILLAR_XS:
+            add_piece(m, lifted, cx, lambda y: y, False)
+    return m
+
+
+def tex_roof():
+    paths = [ROOT / f"model/roof_{k}.png" for k in ("albedo", "normal", "roughness")]
+    return _png_set(paths) if all(q.exists() for q in paths) else tex_floor()
 
 
 def build_platform_mesh(stairs=False, half=HALF, yc=0.0, sides=(True, True)):
@@ -850,6 +873,7 @@ def main():
                 "jpst_platform_tactile": tex_yellow(),
                 "jpst_platform_edge_jp": tex_edge_piece(),
                 "jpst_platform_base_jp": tex_base_piece(),
+                **({"jpst_roof_jp": tex_roof()} if ROOF_FBX.exists() else {}),
                 "jpst_concourse_floor": tex_concourse(),
                 "jpst_pdoor": tex_pdoor()}
     for name, tex in textures.items():
@@ -885,6 +909,9 @@ def main():
                 continue
             build_pdoor_mesh(half, sides).write(OUT / f"msh/{name}{suf}_lod0.msh")
             (OUT / f"{name}{suf}.mdl").write_text(build_pdoor_mdl(name + suf, half, sides))
+    if ROOF_FBX.exists():
+        build_roof_mesh().write(OUT / "msh/jpst_roof_jp_lod0.msh")
+        (OUT / "jpst_roof_jp.mdl").write_text(build_mdl(vanilla_mdl(), ["jpst_roof_jp"], "jpst_roof_jp_lod0"))
     print("written", OUT)
 
 
