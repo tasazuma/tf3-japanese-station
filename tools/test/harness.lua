@@ -254,6 +254,33 @@ do
 	for _, m in ipairs(r.cargoStation.models) do if m.id:find("jpst_pdoor_5") then n = n + 1 end end
 	print(n == 3 and "ok   pdoors drawn per platform cell" or ("FAIL pdoors drawn " .. n))
 end
+do
+	-- signs hang from the roof: standard and Tokyu sets; nothing is drawn without a roof
+	local function countSigns(signsName, withRoof)
+		local mm = {}
+		for id, name in pairs(m5) do mm[id] = name end
+		for j = -1, 1 do
+			if withRoof then mm[layout.encode(K.ROOF, G, 0, j)] = layout.moduleName("jpst_roof_jp") end
+			mm[layout.encode(K.SIGNS, G, 0, j)] = layout.moduleName(signsName)
+		end
+		local r = build({ modulesByName = mm })
+		local names, tracks = 0, 0
+		for _, m in ipairs(r.cargoStation.models) do
+			if m.id:find("jpst_sign_hang") then names = names + 1 end
+			if m.id:find("jpst_track_sign_hang") then tracks = tracks + 1 end
+		end
+		local labels = 0
+		for _ in pairs(r.cargoStation.labelText) do labels = labels + 1 end
+		return names, tracks, labels, r.cargoStation.models
+	end
+	for _, nm in ipairs({ "jpst_signs_standard", "jpst_signs_tokyu" }) do
+		local n, t, l = countSigns(nm, true)
+		print((n == 3 and t == 6 and l >= 9) and ("ok   " .. nm .. " drawn on roofs") or
+			string.format("FAIL %s names=%d tracks=%d labels=%d", nm, n, t, l))
+	end
+	local n, t = countSigns("jpst_signs_tokyu", false)
+	print((n == 0 and t == 0) and "ok   signs need a roof" or ("FAIL signs without roof " .. n .. "/" .. t))
+end
 variant("track only", { [layout.encode(K.TRACK, G, 0, 0)] = T })
 variant("platform only", { [layout.encode(K.PLATFORM, G, 0, 0)] = layout.moduleName("jpst_platform_island_10") })
 variant("empty", {})
@@ -1314,7 +1341,7 @@ end
 -- 18) platform roofs (上家): template middle/full/none, per-5 m strips, end pieces, level handling
 do
 	print("== 18 platform roofs")
-	local ROOF_MDL = "::/stations/rail/era_c/perron_5_roof.mdl"
+	local ROOF_MDL = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl"
 	local ROOF_END = "::/stations/rail/era_c/perron_5_roof_end.mdl"
 	local function count(r, id, zMin)
 		local n = 0
@@ -1329,7 +1356,7 @@ do
 		return n
 	end
 	-- 5 x 40 m, 2 tracks, one 10 m island: middle = whole (<= 200 m), 2 strips each
-	for _, case in ipairs({ { 1, 0, 0 }, { 2, 5, 2 }, { 3, 5, 2 } }) do
+	for _, case in ipairs({ { 1, 0, 0 }, { 2, 5, 0 }, { 3, 5, 0 } }) do
 		local idx, segs, ends = case[1], case[2], case[3]
 		for lvl = 1, 2 do
 			local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = idx, jpst_level = lvl, jpst_platformWidth = 2 })
@@ -1341,7 +1368,7 @@ do
 			check("roof option " .. idx .. " level " .. lvl, r)
 		end
 	end
-	-- gap in the middle: removing the centre roof adds two more end pieces; a roof without a platform is ignored
+	-- gap in the middle: the jp roof has no end pieces; a roof without a platform is ignored
 	local m = script.createTemplateFn({}, { jpst_length = 5, jpst_tracks = 2, jpst_roof = 3, jpst_platformWidth = 1 })
 	local rid
 	for id, name in pairs(m) do
@@ -1353,7 +1380,7 @@ do
 	m[stray] = m[layout.encode(layout.KIND.ROOF, layout.LEVEL.GROUND, 0, 1)]
 	local r = build({ modulesByName = m })
 	local nr, ne = count(r, ROOF_MDL), count(r, ROOF_END)
-	print(((nr == 4 and ne == 4) and "" or "FAIL ") .. "roof gap 5 m", nr, ne)
+	print(((nr == 4 and ne == 0) and "" or "FAIL ") .. "roof gap 5 m", nr, ne)
 	if not r.jpst.layout.ignored[stray] then print("FAIL stray roof not ignored") end
 	check("roof gap", r)
 	-- lightpoles only on roofless segments: 5 segments, middle roof covers all, full none -> 0; no roof -> 5 x 2

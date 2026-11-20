@@ -367,6 +367,54 @@ end
 ''')
 
 
+SIGNS_PRICE = 20000
+SIGN_SETS = (("standard", "", 160), ("tokyu", "_tokyu", 161))
+
+
+def gen_signs():
+    for key, suf, order in SIGN_SETS:
+        params = f'''{{
+				hangSign = "jpst_station::/stations/jpst/perron/jpst_sign_hang{suf}.mdl",
+				trackSign = "jpst_station::/stations/jpst/perron/jpst_track_sign_hang{suf}.mdl",
+			}}'''
+        write(f"jpst_signs_{key}", HEADER + f'''function data()
+	return {{
+		availability = {{ yearFrom = 0, yearTo = 0 }},
+		menuCategory = {{
+			categories = {{
+				{{ category = "modules_platforms", filterCategories = {{ "passenger" }}, order = {order} }},
+			}},
+		}},
+		description = {{
+			name = _("JPST_SIGNS_{key.upper()}_NAME"),
+			description = _("JPST_SIGNS_DESC"),
+			icon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c.tga",
+			previewIcon = "::/stations/rail/modular_station/addon_platform_passenger_stairs_era_c_preview.tga",
+			attributes = {{
+				cost = {{ {SIGNS_PRICE}, -1 }},
+				maintenanceCost = {{ {SIGNS_PRICE // 10}, -1 }},
+			}},
+		}},
+		type = "jpst_signs",
+		metadata = {{
+			jpst_signs = true,
+			price = {SIGNS_PRICE},
+			maintenanceCost = {SIGNS_PRICE // 10},
+		}},
+		updateScript = {{
+			fileName = "{SCRIPT}@signs.updateFn",
+			params = {params},
+		}},
+		getModelsScript = {{
+			fileName = "{SCRIPT}@signs.getModelsFn",
+			params = {params},
+		}},
+		builderAudioRes = "{AUDIO}",
+	}}
+end
+''')
+
+
 def building_slot_type(size):
     return "jpst_building" if size <= 1 else f"jpst_building_{size}"
 
@@ -976,8 +1024,6 @@ def gen_roofs():
         if name == "jp":
             params = f'''{{
 				roofModel = "jpst_station::/stations/jpst/perron/jpst_roof_jp.mdl",
-				hangSign = "jpst_station::/stations/jpst/perron/jpst_sign_hang.mdl",
-				trackSign = "jpst_station::/stations/jpst/perron/jpst_track_sign_hang.mdl",
 			}}'''
         else:
             params = f'''{{
@@ -987,6 +1033,8 @@ def gen_roofs():
 			}}'''
         key = name.upper() if (extra or name == "jp") else era.upper()
         cover_meta = "\t\t\tjpst_roof_cover = true,\n" if "cover" in extra else ""
+        if name == "jp":
+            cover_meta += "\t\t\tjpst_sign_z = 4.1, -- underside of the roof slab: signs hang from here\n"
         desc = "COVER_" if "cover" in extra else ("ARM_" if extra else "")
         write(f"jpst_roof_{name}", HEADER + f'''function data()
 	return {{
@@ -1033,6 +1081,7 @@ if __name__ == "__main__":
     gen_platforms()
     gen_stairs()
     gen_pdoors()
+    gen_signs()
     gen_roofs()
     gen_building()
     gen_brick_buildings()

@@ -19,6 +19,7 @@ end
 local CONCOURSE = layout.moduleName("jpst_concourse")
 local UNDER_VIADUCT = layout.moduleName("jpst_underviaduct_pillars")
 local ROOF = layout.moduleName("jpst_roof_jp")
+local SIGNS = layout.moduleName("jpst_signs_standard")
 local ROOF_SLOT_Z = 4 -- roof slots float at roof height so they do not hide the platform slot
 local STAIRS = layout.moduleName("jpst_stairs_basic")
 local STAIRS_SLOT_Z = 2 -- stairs slots float just above the platform floor
@@ -115,6 +116,7 @@ local function createTemplateFn(captureParams, params)
 				end
 				if j >= roofS and j < roofS + roofN then
 					result[layout.encode(KIND.ROOF, level, row, j)] = ROOF
+					result[layout.encode(KIND.SIGNS, level, row, j)] = SIGNS
 				end
 			end
 		end
@@ -275,6 +277,7 @@ local function addSlots(result, L, modules)
 				local tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, c.level))
 				addSlot(layout.encode(KIND.STAIRS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.STAIRS], { 0, 0, 0, 0 })
 				addSlot(layout.encode(KIND.DOORS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.DOORS], { 0, 0, 0, 0 })
+				addSlot(layout.encode(KIND.SIGNS, c.level, row, seg), tf, layout.SLOT_TYPE[KIND.SIGNS], { 0, 0, 0, 0 })
 			end
 		end
 	end
@@ -303,12 +306,12 @@ local function addSlots(result, L, modules)
 			-- a roof left behind after its platform was removed: keep it up at roof height with no spacing,
 			-- otherwise it blocks the platform slot underneath
 			tf = transf.mul(transf.transl(vec3.new(0, 0, ROOF_SLOT_Z)), layout.slotTransf(L, row, seg, level))
-		elseif kind == KIND.STAIRS or kind == KIND.DOORS then
+		elseif kind == KIND.STAIRS or kind == KIND.DOORS or kind == KIND.SIGNS then
 			tf = transf.mul(transf.transl(vec3.new(0, 0, STAIRS_SLOT_Z)), layout.slotTransf(L, row, seg, level))
 		else
 			tf = layout.slotTransf(L, row, seg, level)
 		end
-		local flat = kind == KIND.ROOF or kind == KIND.STAIRS or kind == KIND.DOORS
+		local flat = kind == KIND.ROOF or kind == KIND.STAIRS or kind == KIND.DOORS or kind == KIND.SIGNS
 		addSlot(id, tf, layout.slotTypeOf(id), flat and { 0, 0, 0, 0 } or { 1, 1, 1, 1 })
 	end
 end

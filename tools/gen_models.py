@@ -28,7 +28,7 @@ EDGE_FBX = ROOT / "model/platform_edge.fbx"   # hand-made edge piece (20 m, oute
 BASE_FBX = ROOT / "model/platform_base.fbx"   # hand-made platform body (20 m x 4 m, top at z=1.1)
 BASE_W = 4.0
 ROOF_FBX = ROOT / "model/platform_roof.fbx"   # hand-made roof slab (20 m x 5 m, z 4.1..4.78)
-TRACK_SIGN_FBX = ROOT / "model/track_sign_hang.fbx"   # hanging track-number sign, same layout as the name sign
+SIGN_SETS = ("", "_tokyu")   # model/{sign_hang,track_sign_hang}{suffix}.fbx; same layout in every set
 SIGN_FBX = ROOT / "model/sign_hang.fbx"   # hanging station-name sign, origin at the top of the rod (z -2.2..0)
 PILLAR_FBX = ROOT / "model/roof_pillar.fbx"   # one pair of columns, foot at z=0 (placed on the platform floor)
 PILLAR_XS = (0.0, 20.0, 40.0)   # 20 m spacing, clear of the stairwells (x 10.5-15, 25-29.5); cell ends are shared
@@ -980,8 +980,8 @@ def main():
                 "jpst_platform_edge_jp": tex_edge_piece(),
                 "jpst_platform_base_jp": tex_base_piece(),
                 **({"jpst_roof_jp": tex_roof()} if ROOF_FBX.exists() else {}),
-                **({"jpst_sign_hang": tex_sign()} if SIGN_FBX.exists() else {}),
-                **({"jpst_track_sign_hang": tex_sign("track_sign_hang")} if TRACK_SIGN_FBX.exists() else {}),
+                **{f"jpst_{n}{suf}": tex_sign(f"{n}{suf}") for suf in SIGN_SETS for n in ("sign_hang", "track_sign_hang")
+                   if (ROOT / f"model/{n}{suf}.fbx").exists()},
                 "jpst_concourse_floor": tex_concourse(),
                 "jpst_pdoor": tex_pdoor()}
     for name, tex in textures.items():
@@ -1020,13 +1020,12 @@ def main():
     if ROOF_FBX.exists():
         build_roof_mesh().write(OUT / "msh/jpst_roof_jp_lod0.msh")
         (OUT / "jpst_roof_jp.mdl").write_text(build_mdl(vanilla_mdl(), ["jpst_roof_jp"], "jpst_roof_jp_lod0"))
-    if SIGN_FBX.exists():
-        build_sign_mesh().write(OUT / "msh/jpst_sign_hang_lod0.msh")
-        (OUT / "jpst_sign_hang.mdl").write_text(build_sign_mdl())
-    if TRACK_SIGN_FBX.exists():
-        build_sign_mesh(TRACK_SIGN_FBX).write(OUT / "msh/jpst_track_sign_hang_lod0.msh")
-        (OUT / "jpst_track_sign_hang.mdl").write_text(
-            build_sign_mdl("jpst_track_sign_hang", 0.3, track_sign_labels()))
+    for suf in SIGN_SETS:
+        for n, half, labels in (("sign_hang", 0.9, None), ("track_sign_hang", 0.3, track_sign_labels())):
+            fbx = ROOT / f"model/{n}{suf}.fbx"
+            if fbx.exists():
+                build_sign_mesh(fbx).write(OUT / f"msh/jpst_{n}{suf}_lod0.msh")
+                (OUT / f"jpst_{n}{suf}.mdl").write_text(build_sign_mdl(f"jpst_{n}{suf}", half, labels))
     print("written", OUT)
 
 

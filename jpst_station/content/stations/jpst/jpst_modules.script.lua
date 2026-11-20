@@ -319,6 +319,55 @@ local function getModelsPdoors()
 	return { { id = PDOOR_MODELS[5], transf = perronTransf(0) } }
 end
 
+-- Hanging signs (駅名標・番線表示) ----------------------------------------------------
+-- One slot per platform cell; the module params name the models:
+--   hangSign: station-name board (mesh x 0..40, hangs at the centre line), trackSign: track-number board.
+-- The signs hang from the roof underside, so nothing is drawn without a roof that sets metadata.jpst_sign_z.
+
+-- faces point along the track (like the vanilla number sign), turned about the model centre (mesh x 20)
+local function trackSignTransf(x, z)
+	local turn = transf.mul(transf.rotZTransl(math.rad(90), vec3.new(20, 0, 0)), transf.transl(vec3.new(-20, 0, 0)))
+	return transf.mul(transf.mul(transf.transl(vec3.new(x or 0, -14, z)), perronTransf(0)), turn)
+end
+
+local function updateSigns(captureParams, result, transform, tag, slotId)
+	local L = result.jpst.layout
+	if L.ignored[slotId] then return end
+	local cfg = captureParams or {}
+	local _, level, row, seg = layout.decode(slotId)
+	local sz = L.signZ[row] and L.signZ[row][seg]
+	if not sz then return end
+	local z = (level == ELEVATED) and EZ or 0
+	local cs = result.cargoStation
+	local T = layout.slotTransf(L, row, seg, layout.LEVEL.GROUND)
+	if cfg.hangSign then
+		-- over the platform centre line, faces toward the tracks
+		table.insert(result.jpst.signs, { index = #cs.models, label = "name", row = row, seg = seg })
+		addModelTo(cs.models, cfg.hangSign, T, lift(transf.mul(transf.transl(vec3.new(0, 0, sz)), perronTransf(0)), z), tag)
+	end
+	if cfg.trackSign then
+		-- one sign per track side, hung 3 m in from the platform edge (centre line if the platform is narrow)
+		local half = layout.width(L, row) / 2
+		local off = half >= 5 and half - 3 or half / 2
+		for _, side in ipairs({ -1, 1 }) do
+			table.insert(result.jpst.signs, { index = #cs.models, label = "number1", row = row, seg = seg, side = side })
+			addModelTo(cs.models, cfg.trackSign, T, lift(trackSignTransf(side * off, sz), z), tag)
+		end
+	end
+end
+
+local function getModelsSigns(captureParams)
+	local cfg = captureParams or {}
+	local res = {}
+	if cfg.hangSign then
+		table.insert(res, { id = cfg.hangSign, transf = transf.mul(transf.transl(vec3.new(0, 0, 4.1)), perronTransf(0)) })
+	end
+	if cfg.trackSign then
+		table.insert(res, { id = cfg.trackSign, transf = trackSignTransf(0, 4.1) })
+	end
+	return res
+end
+
 -- Platform roof (上家) ---------------------------------------------------------
 -- Vanilla perron_5_roof models are 40 m long and cover a 5 m platform, so wider platforms get one per 5 m.
 -- An end piece closes the roof where the next segment of the same platform has no roof.
@@ -407,12 +456,6 @@ local function addRoofCover(cs, T, z, tag, L, row, seg, level, cfg)
 	end
 end
 
--- faces point along the track (like the vanilla number sign), turned about the model centre (mesh x 20)
-local function trackSignTransf(x)
-	local turn = transf.mul(transf.rotZTransl(math.rad(90), vec3.new(20, 0, 0)), transf.transl(vec3.new(-20, 0, 0)))
-	return transf.mul(transf.mul(transf.transl(vec3.new(x or 0, -14, 4.1)), perronTransf(0)), turn)
-end
-
 local function updateRoof(captureParams, result, transform, tag, slotId, addModel, constrParams)
 	local L = result.jpst.layout
 	if L.ignored[slotId] then return end
@@ -425,20 +468,6 @@ local function updateRoof(captureParams, result, transform, tag, slotId, addMode
 	local closePlus = cfg.endModel and not layout.hasRoof(L, row, seg + 1)
 	if cfg.arms then addRoofArms(cs, T, z, tag, L, row, seg, level, cfg.arms) end
 	if cfg.cover then addRoofCover(cs, T, z, tag, L, row, seg, level, cfg) end
-	if cfg.hangSign then
-		-- hangs from the roof underside (4.1 m) over the platform centre line, face toward the tracks
-		table.insert(result.jpst.signs, { index = #cs.models, label = "name", row = row, seg = seg })
-		addModelTo(cs.models, cfg.hangSign, T, lift(transf.mul(transf.transl(vec3.new(0, 0, 4.1)), perronTransf(0)), z), tag)
-	end
-	if cfg.trackSign then
-		-- one sign per track side, hung 3 m in from the platform edge (centre line if the platform is narrow)
-		local half = layout.width(L, row) / 2
-		local off = half >= 5 and half - 3 or half / 2
-		for _, side in ipairs({ -1, 1 }) do
-			table.insert(result.jpst.signs, { index = #cs.models, label = "number1", row = row, seg = seg, side = side })
-			addModelTo(cs.models, cfg.trackSign, T, lift(trackSignTransf(side * off), z), tag)
-		end
-	end
 	for _, x in ipairs(roofXs(layout.width(L, row))) do
 		if cfg.roofModel then
 			addModelTo(cs.models, cfg.roofModel, T, lift(perronTransf(x), z), tag)
@@ -456,12 +485,6 @@ local function getModelsRoof(captureParams, params)
 	local cfg = captureParams or {}
 	local res = {}
 	if cfg.roofModel then table.insert(res, { id = cfg.roofModel, transf = perronTransf(0) }) end
-	if cfg.hangSign then
-		table.insert(res, { id = cfg.hangSign, transf = transf.mul(transf.transl(vec3.new(0, 0, 4.1)), perronTransf(0)) })
-	end
-	if cfg.trackSign then
-		table.insert(res, { id = cfg.trackSign, transf = trackSignTransf() })
-	end
 	if cfg.endModel then
 		table.insert(res, { id = cfg.endModel, transf = transf.rotZTransl(math.rad(-90), vec3.new(0, -20, 0)) })
 		table.insert(res, { id = cfg.endModel, transf = transf.rotZTransl(math.rad(90), vec3.new(0, 20, 0)) })
@@ -1373,6 +1396,10 @@ function data()
 		pdoors = {
 			updateFn = updatePdoors,
 			getModelsFn = getModelsPdoors,
+		},
+		signs = {
+			updateFn = updateSigns,
+			getModelsFn = getModelsSigns,
 		},
 		roof = {
 			updateFn = updateRoof,
